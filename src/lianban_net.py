@@ -16,9 +16,14 @@ BASE_URL = "https://lianban.net"
 _UA = "dragon-head-lark-bot/1.0 (+https://github.com/zjgzjg/dragon-head-lark-bot)"
 _RETRY = 3
 
-_SUMMARY_RE = re.compile(
+_SUMMARY_FULL_RE = re.compile(
     r"涨停(\d+)家、连板(\d+)家、最高(\d+)板、跌停(\d+)家、"
     r"封板率([\d.]+)%、炸板(\d+)家。情绪([^，。]+)(?:，温度([\d.]+)°)?。"
+    r"主线题材：([^。【\n]+)"
+)
+# 当日归档前：/days/YYYY-MM-DD.html 与 today.html 常用此摘要（无跌停/封板率）
+_SUMMARY_LIVE_RE = re.compile(
+    r"涨停(\d+)家、连板(\d+)家、最高(\d+)板、炸板(\d+)家。情绪([^，。]+)(?:，温度([\d.]+)°)?。"
     r"主线题材：([^。【\n]+)"
 )
 _MCONCL_RE = re.compile(
@@ -41,6 +46,7 @@ class LianbanSummary:
     one_liner: Optional[str]
     url: str
     ai_snippet: Optional[str] = None
+    provisional: bool = False
 
 
 def _get(url: str, timeout: int = 25) -> Optional[str]:
@@ -58,25 +64,56 @@ def _get(url: str, timeout: int = 25) -> Optional[str]:
     return None
 
 
+def _meta_description(html: str) -> Optional[str]:
+    for pat in (
+        r'<meta name="description" content="([^"]+)"',
+        r'<meta property="og:description" content="([^"]+)"',
+    ):
+        dm = re.search(pat, html)
+        if dm:
+            return dm.group(1)
+    return None
+
+
 def _parse_summary_text(text: str, date_iso: str, url: str) -> Optional[LianbanSummary]:
-    m = _SUMMARY_RE.search(text.replace("\n", ""))
-    if not m:
-        return None
-    temp = float(m.group(8)) if m.group(8) else None
-    return LianbanSummary(
-        date_iso=date_iso,
-        zt=int(m.group(1)),
-        lianban=int(m.group(2)),
-        max_board=int(m.group(3)),
-        dt=int(m.group(4)),
-        seal_rate=float(m.group(5)),
-        zhaban=int(m.group(6)),
-        phase=m.group(7).strip(),
-        temp=temp,
-        themes=m.group(9).strip().rstrip("。"),
-        one_liner=None,
-        url=url,
-    )
+    flat = text.replace("\n", "")
+    m = _SUMMARY_FULL_RE.search(flat)
+    if m:
+        temp = float(m.group(8)) if m.group(8) else None
+        return LianbanSummary(
+            date_iso=date_iso,
+            zt=int(m.group(1)),
+            lianban=int(m.group(2)),
+            max_board=int(m.group(3)),
+            dt=int(m.group(4)),
+            seal_rate=float(m.group(5)),
+            zhaban=int(m.group(6)),
+            phase=m.group(7).strip(),
+            temp=temp,
+            themes=m.group(9).strip().rstrip("。"),
+            one_liner=None,
+            url=url,
+            provisional=False,
+        )
+    m = _SUMMARY_LIVE_RE.search(flat)
+    if m:
+        temp = float(m.group(6)) if m.group(6) else None
+        return LianbanSummary(
+            date_iso=date_iso,
+            zt=int(m.group(1)),
+            lianban=int(m.group(2)),
+            max_board=int(m.group(3)),
+            dt=0,
+            seal_rate=0.0,
+            zhaban=int(m.group(4)),
+            phase=m.group(5).strip(),
+            temp=temp,
+            themes=m.group(7).strip().rstrip("。"),
+            one_liner=None,
+            url=url,
+            provisional=True,
+        )
+    return None
 
 
 def _iso_from_yyyymmdd(s: str) -> str:
@@ -86,31 +123,41 @@ def _iso_from_yyyymmdd(s: str) -> str:
     return s
 
 
-def fetch_day_summary(trade_date: str) -> Optional[LianbanSummary]:
-    """trade_date: YYYYMMDD 或 YYYY-MM-DD。"""
-    iso = _iso_from_yyyymmdd(trade_date)
-    url = f"{BASE_URL}/days/{iso}.html"
-    html = _get(url)
-    if not html:
-        return _fetch_from_feed(iso)
-    desc = None
-    for pat in (
-        r'<meta name="description" content="([^"]+)"',
-        r'<meta property="og:description" content="([^"]+)"',
-    ):
-        dm = re.search(pat, html)
-        if dm:
-            desc = dm.group(1)
-            break
-    if not desc:
-        return _fetch_from_feed(iso)
-    sm = _parse_summary_text(desc, iso, url)
-    if not sm:
-        return _fetch_from_feed(iso)
+def _enrich_from_html(sm: LianbanSummary, html: str) -> LianbanSummary:
     cm = _MCONCL_RE.search(html)
     if cm:
         sm.one_liner = cm.group(1).strip()
     return sm
+
+
+def fetch_day_summary(trade_date: str) -> Optional[LianbanSummary]:
+    """trade_date: YYYYMMDD 或 YYYY-MM-DD。"""
+    iso = _iso_from_yyyymmdd(trade_date)
+    candidates = [
+        f"{BASE_URL}/days/{iso}.html",
+        f"{BASE_URL}/today.html",
+    ]
+    seen: set[str] = set()
+    for url in candidates:
+        if url in seen:
+            continue
+        seen.add(url)
+        html = _get(url)
+        if not html:
+            continue
+        desc = _meta_description(html)
+        if not desc:
+            continue
+        page_iso = iso
+        dm = re.search(r"\((\d{4}-\d{2}-\d{2})\)", desc)
+        if dm:
+            page_iso = dm.group(1)
+        if page_iso != iso:
+            continue
+        sm = _parse_summary_text(desc, iso, url if "today" not in url else f"{BASE_URL}/days/{iso}.html")
+        if sm:
+            return _enrich_from_html(sm, html)
+    return _fetch_from_feed(iso)
 
 
 def _fetch_from_feed(match_iso: Optional[str] = None) -> Optional[LianbanSummary]:

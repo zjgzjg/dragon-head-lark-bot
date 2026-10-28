@@ -427,7 +427,10 @@ def _section_env_compact(
     seal = f"{lb_cur.seal_rate:.0f}%" if lb_cur else "—"
     temp = f"{lb_cur.temp:.0f}°" if lb_cur and lb_cur.temp is not None else "—"
     phase = lb_cur.phase.replace("期", "") if lb_cur else "—"
-    emo = f"**{phase}** ~**{temp}**（{zt} 涨停、{dt} 跌停、封板率 ~{seal}）"
+    if lb_cur and lb_cur.provisional:
+        emo = f"**{phase}** ~**{temp}**（{zt} 涨停、炸板 **{lb_cur.zhaban}**，整理中）"
+    else:
+        emo = f"**{phase}** ~**{temp}**（{zt} 涨停、{dt} 跌停、封板率 ~{seal}）"
     return [
         "",
         f"## 一、{_md_short(date)} 收盘环境 → {_md_short(nd)} 名单前提",
@@ -512,14 +515,19 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     report_date = date.strip()
     lb_cur = fetch_day_summary(report_date)
     lb_stale_note = ""
-    if not lb_cur:
+    if lb_cur and lb_cur.provisional:
+        lb_stale_note = (
+            f"连板网 **{fmt_date(report_date)}** 页面为 **收盘整理中/未定版** 快照"
+            f"（[today](https://lianban.net/today.html)），跌停/封板率可能缺失；涨停池仍按 **{fmt_date(report_date)}**。"
+        )
+    elif not lb_cur:
         lb_latest = fetch_latest_summary()
         if lb_latest:
             lb_cur = lb_latest
             latest_d = lb_latest.date_iso.replace("-", "")
             if latest_d != report_date:
                 lb_stale_note = (
-                    f"连板网 **{fmt_date(report_date)}** 尚未归档，"
+                    f"连板网 **{fmt_date(report_date)}** 页面暂不可用，"
                     f"情绪/主线暂引用最近定版 **{fmt_date(latest_d)}**（涨停池仍按 **{fmt_date(report_date)}**）。"
                 )
 
