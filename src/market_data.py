@@ -267,11 +267,16 @@ def fetch_open_snapshot(code: str, trade_date: datetime) -> Optional[Dict]:
 
 def fetch_watchlist_rows(codes: List[str], zt_df: pd.DataFrame) -> List[Dict]:
     rows = []
+    pool_ok = (
+        zt_df is not None
+        and not zt_df.empty
+        and "代码" in zt_df.columns
+    )
     for code in codes:
         code = code.strip()
         if not code:
             continue
-        r = zt_df[zt_df["代码"] == code]
+        r = zt_df[zt_df["代码"] == code] if pool_ok else pd.DataFrame()
         if len(r):
             x = r.iloc[0]
             rows.append(

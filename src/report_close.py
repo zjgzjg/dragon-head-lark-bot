@@ -13,6 +13,15 @@ from src.market_data import fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
 
 
+def _has_zt_pool(df: pd.DataFrame) -> bool:
+    return (
+        df is not None
+        and not df.empty
+        and "连板数" in df.columns
+        and "代码" in df.columns
+    )
+
+
 def _hard_pass(row: pd.Series) -> bool:
     return (
         row["连板数"] >= 2
@@ -124,6 +133,8 @@ def _parse_roles() -> Dict[str, str]:
 
 
 def _pick_strict(df: pd.DataFrame, max_n: int = 5) -> pd.DataFrame:
+    if not _has_zt_pool(df):
+        return pd.DataFrame()
     sub = df[df["连板数"] >= 2].copy()
     sub = sub.sort_values(["连板数", "首次封板时间"], ascending=[False, True])
     strict = sub[sub.apply(_hard_pass, axis=1)]
@@ -164,39 +175,62 @@ def _build_next_watchlist(
         code = code.strip()
         if not code or code in seen or code == thermometer:
             continue
-        row = df[df["代码"].astype(str) == code]
-        if len(row) and _hard_pass(row.iloc[0]):
-            r = row.iloc[0]
-            seen.add(code)
-            close = float(r["最新价"])
-            items.append(
-                {
-                    "code": code,
-                    "name": r["名称"],
-                    "role": roles.get(code, "观察池补入"),
-                    "close": close,
-                    "limit": _limit_up_price(code, close),
-                    "height": int(r["连板数"]),
-                }
-            )
+        added = False
+        if _has_zt_pool(df):
+            row = df[df["代码"].astype(str) == code]
+            if len(row) and _hard_pass(row.iloc[0]):
+                r = row.iloc[0]
+                seen.add(code)
+                close = float(r["最新价"])
+                items.append(
+                    {
+                        "code": code,
+                        "name": r["名称"],
+                        "role": roles.get(code, "观察池补入"),
+                        "close": close,
+                        "limit": _limit_up_price(code, close),
+                        "height": int(r["连板数"]),
+                    }
+                )
+                added = True
+        if not added and not _has_zt_pool(df):
+            wr = fetch_watchlist_rows([code], df)
+            if wr and wr[0].get("close"):
+                w = wr[0]
+                seen.add(code)
+                close = float(w["close"])
+                items.append(
+                    {
+                        "code": code,
+                        "name": w.get("name", code),
+                        "role": roles.get(code, "观察池（池不可用）"),
+                        "close": close,
+                        "limit": _limit_up_price(code, close),
+                        "height": int(w.get("height") or 0),
+                    }
+                )
         if len(items) >= max_n - 1:
             break
 
     if thermometer:
-        tr = df[df["代码"].astype(str) == thermometer]
+        tr = df[df["代码"].astype(str) == thermometer] if _has_zt_pool(df) else pd.DataFrame()
         close = float(tr.iloc[0]["最新价"]) if len(tr) else 0.0
+        name = tr.iloc[0]["名称"] if len(tr) else thermometer
+        height = int(tr.iloc[0]["连板数"]) if len(tr) else 0
         if not close:
             wr = fetch_watchlist_rows([thermometer], df)
             if wr and wr[0].get("close"):
                 close = float(wr[0]["close"])
+                name = wr[0].get("name", thermometer)
+                height = int(wr[0].get("height") or 0)
         items.append(
             {
                 "code": thermometer,
-                "name": tr.iloc[0]["名称"] if len(tr) else thermometer,
+                "name": name,
                 "role": roles.get(thermometer, "仅体温计，默认不买"),
                 "close": close,
                 "limit": _limit_up_price(thermometer, close) if close else 0,
-                "height": int(tr.iloc[0]["连板数"]) if len(tr) else 0,
+                "height": height,
             }
         )
     return items[:max_n]
@@ -308,7 +342,7 @@ def _section_prev_watch(watch_codes: List[str], df: pd.DataFrame) -> List[str]:
         code = code.strip()
         if not code:
             continue
-        row = df[df["代码"].astype(str) == code]
+        row = df[df["代码"].astype(str) == code] if _has_zt_pool(df) else pd.DataFrame()
         if len(row):
             r = row.iloc[0]
             perf = f"{int(r['连板数'])}板 收{float(r['最新价']):.2f} 炸{int(r['炸板次数'])}"
@@ -369,10 +403,13 @@ def _section_watch_plan(
 
     lines += ["", "**否决（勿进接力池）：**"]
     veto_lines: List[str] = []
-    sub = df[df["连板数"] >= 2] if not df.empty else df
-    codes_check = set(watch_codes) | set(strict["代码"].astype(str).tolist() if len(strict) else [])
+    codes_check = set(watch_codes) | (
+        set(strict["代码"].astype(str).tolist()) if len(strict) else set()
+    )
     for code in codes_check:
         code = str(code).strip()
+        if not _has_zt_pool(df):
+            break
         row = df[df["代码"].astype(str) == code]
         if not len(row):
             continue
@@ -382,7 +419,10 @@ def _section_watch_plan(
         reasons = _veto_reasons(r)
         if reasons:
             veto_lines.append(f"- **{r['名称']}** `{code}`：{'；'.join(reasons)}")
-    lines.extend(veto_lines or ["- （池内连板票均须个别核对）"])
+    if not _has_zt_pool(df):
+        lines.append("- ⚠️ 东财涨停池不可用（如 GitHub Actions），否决线请本地/连板网人工核对。")
+    else:
+        lines.extend(veto_lines or ["- （池内连板票均须个别核对）"])
 
     next_items = _build_next_watchlist(strict, watch_codes, df, thermometer)
     lines += [
@@ -460,31 +500,43 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     nd = next_trade_date(date)
 
     df = pd.DataFrame()
+    df.attrs["date"] = date
     sm_cur = summarize_zt(df, date)
     sm_prev = summarize_zt(df, prev_d)
+    pool_ok = False
     try:
         df = fetch_zt_pool(date)
         df.attrs["date"] = date
         sm_cur = summarize_zt(df, date)
+        pool_ok = _has_zt_pool(df)
     except Exception:
-        pass
+        df = pd.DataFrame()
+        df.attrs["date"] = date
+    df_prev = pd.DataFrame()
     try:
         df_prev = fetch_zt_pool(prev_d)
+        df_prev.attrs["date"] = prev_d
         sm_prev = summarize_zt(df_prev, prev_d)
     except Exception:
-        df_prev = pd.DataFrame()
         sm_prev = summarize_zt(df_prev, prev_d)
 
-    df_line = _mainline_filter(df)
+    df_line = _mainline_filter(df) if pool_ok else df
     lb_cur = fetch_day_summary(date)
     lb_prev = fetch_day_summary(prev_d)
-    strict = _pick_strict(df_line if len(df_line) else df)
+    strict = _pick_strict(df_line if _has_zt_pool(df_line) else df)
 
     header = [
         f"# {fmt_date(date)}（{weekday_cn(date)}）收盘复盘",
         "",
         f"**定版口径：** 东财涨停池 + [连板网](https://lianban.net/) {fmt_date(date)} 公开复盘；"
         "个股价以收盘池/日线为准。",
+    ]
+    if not pool_ok:
+        header.append(
+            "> ⚠️ **东财涨停池未拉取**（云端限流时常见）：环境/主线以 **连板网** 为准；"
+            "观察名单价用 **新浪日线**；硬条件表可能为空。"
+        )
+    header += [
         "",
         "**目录**",
         "1. 环境",
@@ -496,15 +548,15 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
         "",
     ]
 
-    next_items = _build_next_watchlist(
-        strict, watch_codes, df if len(df) else df_prev, thermometer
-    )
+    df_for_watch = df if pool_ok else df
+    df_for_watch.attrs["date"] = date
+    next_items = _build_next_watchlist(strict, watch_codes, df_for_watch, thermometer)
 
     parts = header
     parts += _section_env(date, prev_d, sm_cur, sm_prev, lb_cur, lb_prev)
     parts += _section_mainline(df, lb_cur)
-    parts += _section_prev_watch(watch_codes, df if len(df) else df_prev)
-    parts += _section_watch_plan(date, strict, df, watch_codes, thermometer)
+    parts += _section_prev_watch(watch_codes, df_for_watch)
+    parts += _section_watch_plan(date, strict, df_for_watch, watch_codes, thermometer)
     parts += _section_exec(nd)
     parts += ["", "## 六、一句话", "", _one_liner(next_items, nd), "", "> 方法论复盘，不构成投资建议。"]
     return "\n".join(parts)
