@@ -12,7 +12,7 @@ _CONSUMER_HINT = r"消费|零售|食品|百货|商业|餐饮|酿酒|旅游|酒�
 # 与 _hard_pass 一致，用于推送文案
 HARD_CONDITIONS_TEXT = "连板≥2 · 封单比≥3% · 炸板<3 · 换手≤20% · 14:00 前首封"
 
-THERMOMETER_ROLE_DEFAULT = "体温计·定权限（不接力）"
+THERMOMETER_ROLE_DEFAULT = "体温计·可观察接力"
 
 
 def parse_manual_watchlist() -> List[str]:

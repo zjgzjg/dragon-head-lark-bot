@@ -332,19 +332,25 @@ def _hard_note(code: str, df: pd.DataFrame, best_seal: float) -> str:
     return note
 
 
+def _board_role_suffix(r: pd.Series) -> str:
+    ft = _first_time_fmt(int(r["首次封板时间"]))
+    z = int(r["炸板次数"])
+    t = float(r["换手率"])
+    h = int(r["连板数"])
+    qual = "质量龙" if z == 0 and t <= 5 else ""
+    return f"{h}板 · 首封{ft} · {z}炸 · 换{t:.1f}%{(' · ' + qual) if qual else ''}"
+
+
 def _auto_role(code: str, df: pd.DataFrame, roles: Dict[str, str], thermometer: str) -> str:
-    if code == thermometer:
-        return roles.get(code, THERMOMETER_ROLE_DEFAULT)
     if roles.get(code):
         return roles[code]
     r = _pool_row(df, code)
+    if code == thermometer:
+        if r is not None:
+            return f"体温计 · {_board_role_suffix(r)} · 可观察接力"
+        return THERMOMETER_ROLE_DEFAULT
     if r is not None:
-        ft = _first_time_fmt(int(r["首次封板时间"]))
-        z = int(r["炸板次数"])
-        t = float(r["换手率"])
-        h = int(r["连板数"])
-        qual = "质量龙" if z == 0 and t <= 5 else ""
-        return f"{h}板 · 首封{ft} · {z}炸 · 换{t:.1f}%{(' · ' + qual) if qual else ''}"
+        return _board_role_suffix(r)
     return "观察池"
 
 
@@ -461,16 +467,13 @@ def _section_triggers(nd: str, rows: List[dict], thermometer: str) -> List[str]:
         "| --- | --- | --- | --- | --- |",
     ]
     rule = "低开>2%删；9:35–9:45承接；止损：昨收或破开盘价-3%"
+    therm_rule = f"9:25 定权限；{rule}"
     for r in rows:
-        if r["code"] == thermometer:
-            lines.append(
-                f"| {r['code']} | {r['name']}（体温） | {r['close']:.2f} | {r['limit']:.2f} | "
-                "一字/回封=权限↑；低开>2%或15分不回封=关闭 |"
-            )
-        else:
-            lines.append(
-                f"| {r['code']} | {r['name']} | {r['close']:.2f} | {r['limit']:.2f} | {rule} |"
-            )
+        name = f"{r['name']}（体温）" if r["code"] == thermometer else r["name"]
+        row_rule = therm_rule if r["code"] == thermometer else rule
+        lines.append(
+            f"| {r['code']} | {name} | {r['close']:.2f} | {r['limit']:.2f} | {row_rule} |"
+        )
     return lines
 
 
@@ -494,10 +497,13 @@ def _section_exec(next_date: str) -> List[str]:
 
 
 def _one_liner(watch_rows: List[dict], next_date: str, thermometer: str) -> str:
-    picks = [x for x in watch_rows if x["code"] != thermometer]
-    main = "、".join(f"「{x['name']}」" for x in picks[:2]) or "硬板龙头"
+    ordered = sorted(
+        watch_rows,
+        key=lambda x: (0 if x["code"] == thermometer else 1, x["idx"]),
+    )
+    main = "、".join(f"「{x['name']}」" for x in ordered[:3]) or "硬板龙头"
     return (
-        f"**{fmt_date(next_date)}** 只盯：{main} 为主力观察，体温计定开关；"
+        f"**{fmt_date(next_date)}** 只盯：{main}（含体温计，均可观察接力）；"
         "退潮下半仓，竞价只否决、**9:35–9:45** 才执行。"
     )
 
