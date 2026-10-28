@@ -9,9 +9,15 @@ from typing import Optional
 
 import markdown
 
+_FONT_LINKS = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+"""
+
 _REPORT_CSS = """
 body {
-  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", "WenQuanYi Zen Hei", sans-serif;
   font-size: 14px;
   line-height: 1.55;
   color: #1f2329;
@@ -65,7 +71,7 @@ def _md_to_html(md_text: str, title: str) -> str:
     )
     safe_title = re.sub(r"<[^>]+>", "", title)
     return f"""<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8"><style>{_REPORT_CSS}</style></head>
+<html lang="zh-CN"><head><meta charset="utf-8">{_FONT_LINKS}<style>{_REPORT_CSS}</style></head>
 <body><h1>{safe_title}</h1>{body}</body></html>"""
 
 
@@ -88,7 +94,9 @@ def render_markdown_long_image(
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 960, "height": 900})
-            page.set_content(html, wait_until="load")
+            page.set_content(html, wait_until="networkidle")
+            page.evaluate("() => document.fonts.ready")
+            page.wait_for_timeout(800)
             height = page.evaluate("() => document.body.scrollHeight")
             page.set_viewport_size({"width": 960, "height": min(max(height + 40, 400), 16000)})
             page.screenshot(path=str(out), full_page=True, type="png")
