@@ -10,7 +10,9 @@ import pandas as pd
 _CONSUMER_HINT = r"消费|零售|食品|百货|商业|餐饮|酿酒|旅游|酒店|乳业|预制菜|电商"
 
 # 与 _hard_pass 一致，用于推送文案
-HARD_CONDITIONS_TEXT = "连板≥2 · 封单比≥3% · 炸板<3 · 换手≤20% · 14:00 前首封"
+HARD_CONDITIONS_TEXT = (
+    "至少 2 连板 · 封单比≥3%（封板够硬）· 炸板<3 次 · 换手≤20% · 14:00 前首封"
+)
 
 THERMOMETER_ROLE_DEFAULT = "体温计·可观察接力"
 

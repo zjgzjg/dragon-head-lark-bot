@@ -45,15 +45,18 @@ def _hard_pass(row: pd.Series) -> bool:
 def _veto_reasons(row: pd.Series) -> List[str]:
     rs: List[str] = []
     if int(row["连板数"]) < 2:
-        rs.append("连板<2")
-    if float(row["封单比"]) < 3:
-        rs.append(f"封单{row['封单比']:.1f}%<3%")
-    if int(row["炸板次数"]) >= 3:
-        rs.append(f"{int(row['炸板次数'])}炸")
-    if float(row["换手率"]) > 20:
-        rs.append(f"换手{row['换手率']:.1f}%>20%")
+        rs.append("连板不足 2 天")
+    seal = float(row["封单比"])
+    if seal < 3:
+        rs.append(f"封板偏软（封单比 {seal:.1f}%，要求 ≥3%）")
+    z = int(row["炸板次数"])
+    if z >= 3:
+        rs.append(f"炸板过多（{z} 次，要求 <3 次）")
+    turn = float(row["换手率"])
+    if turn > 20:
+        rs.append(f"换手偏高（{turn:.1f}%，要求 ≤20%）")
     if int(row["首次封板时间"]) > 140000:
-        rs.append("14:00后首封")
+        rs.append("首封偏晚（14:00 以后才封板）")
     return rs
 
 
@@ -327,14 +330,17 @@ def _position_narrative(lb: Optional[LianbanSummary], therm_name: str) -> str:
 def _hard_note(code: str, df: pd.DataFrame, best_seal: float) -> str:
     r = _pool_row(df, code)
     if r is None:
-        return "不在涨停池"
+        return "当日未在涨停池"
     reasons = _veto_reasons(r)
     if not reasons:
-        return "严格过关"
+        return "硬条件全部满足"
     note = "；".join(reasons)
     seal = float(r["封单比"])
     if best_seal > 0 and abs(seal - best_seal) < 0.05:
-        note = f"**相对最硬**（仍 {note}）" if seal < 3 else "**相对最硬**"
+        if seal < 3:
+            note = f"名单里相对最硬（但仍有不足：{note}）"
+        else:
+            note = "名单里相对最硬，硬条件满足"
     return note
 
 
