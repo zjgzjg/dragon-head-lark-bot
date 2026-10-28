@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from src.lianban_net import LianbanSummary, fetch_day_summary
-from src.market_data import fetch_watchlist_rows, fetch_zt_pool, summarize_zt
+from src.lianban_net import LianbanSummary, fetch_day_summary, fetch_latest_summary
+from src.market_data import fetch_code_quote, fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
 
 
@@ -171,6 +171,8 @@ def _build_next_watchlist(
         if len(items) >= max_n - 1:
             break
 
+    trade_d = str(df.attrs.get("date") or "")
+
     for code in watch_codes:
         code = code.strip()
         if not code or code in seen or code == thermometer:
@@ -178,7 +180,7 @@ def _build_next_watchlist(
         added = False
         if _has_zt_pool(df):
             row = df[df["代码"].astype(str) == code]
-            if len(row) and _hard_pass(row.iloc[0]):
+            if len(row):
                 r = row.iloc[0]
                 seen.add(code)
                 close = float(r["最新价"])
@@ -193,20 +195,18 @@ def _build_next_watchlist(
                     }
                 )
                 added = True
-        if not added and not _has_zt_pool(df):
-            wr = fetch_watchlist_rows([code], df)
-            if wr and wr[0].get("close"):
-                w = wr[0]
+        if not added and trade_d:
+            q = fetch_code_quote(code, trade_d)
+            if not q.get("error"):
                 seen.add(code)
-                close = float(w["close"])
                 items.append(
                     {
                         "code": code,
-                        "name": w.get("name", code),
-                        "role": roles.get(code, "观察池（池不可用）"),
-                        "close": close,
-                        "limit": _limit_up_price(code, close),
-                        "height": int(w.get("height") or 0),
+                        "name": q.get("name", code),
+                        "role": roles.get(code, "观察池"),
+                        "close": float(q["close"]),
+                        "limit": _limit_up_price(code, float(q["close"])),
+                        "height": 0,
                     }
                 )
         if len(items) >= max_n - 1:
@@ -217,6 +217,11 @@ def _build_next_watchlist(
         close = float(tr.iloc[0]["最新价"]) if len(tr) else 0.0
         name = tr.iloc[0]["名称"] if len(tr) else thermometer
         height = int(tr.iloc[0]["连板数"]) if len(tr) else 0
+        if not close and trade_d:
+            q = fetch_code_quote(thermometer, trade_d)
+            if not q.get("error"):
+                close = float(q["close"])
+                name = q.get("name", thermometer)
         if not close:
             wr = fetch_watchlist_rows([thermometer], df)
             if wr and wr[0].get("close"):
@@ -259,13 +264,13 @@ def _section_env(
         return str(v)
 
     prev_zt = lb_prev.zt if lb_prev else sm_prev.count
-    cur_zt = lb_cur.zt if lb_cur else sm_cur.count
+    cur_zt = lb_cur.zt if lb_cur else (sm_cur.count if sm_cur.count else "—")
     prev_dt = lb_prev.dt if lb_prev else "—"
     cur_dt = lb_cur.dt if lb_cur else "—"
-    prev_seal = lb_prev.seal_rate if lb_prev else "—"
-    cur_seal = lb_cur.seal_rate if lb_cur else "—"
+    prev_seal = f"{lb_prev.seal_rate:.1f}%" if lb_prev else "—"
+    cur_seal = f"{lb_cur.seal_rate:.1f}%" if lb_cur else "—"
     prev_h = lb_prev.max_board if lb_prev else sm_prev.max_height
-    cur_h = lb_cur.max_board if lb_cur else sm_cur.max_height
+    cur_h = lb_cur.max_board if lb_cur else (f"{sm_cur.max_height}板" if sm_cur.max_height else "—")
     prev_temp = lb_prev.temp if lb_prev and lb_prev.temp is not None else None
     cur_temp = lb_cur.temp if lb_cur and lb_cur.temp is not None else None
 
@@ -280,15 +285,13 @@ def _section_env(
     rows = [
         ("涨停", prev_zt, cur_zt, "zt"),
         ("跌停", prev_dt, cur_dt, "dt"),
-        ("封板率", prev_seal, f"{cur_seal:.1f}%" if isinstance(cur_seal, float) else cur_seal, "seal"),
-        ("最高板", f"{prev_h}板", f"{cur_h}板", "height"),
+        ("封板率", prev_seal, cur_seal, "seal"),
+        ("最高板", f"{prev_h}板" if isinstance(prev_h, int) else prev_h, f"{cur_h}板" if isinstance(cur_h, int) else cur_h, "height"),
     ]
     for label, a, b, key in rows:
         meaning = "—"
         try:
-            if key == "seal" and isinstance(a, (int, float)) and isinstance(cur_seal, float):
-                meaning = _env_meaning(key, float(a), float(cur_seal))
-            elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
                 meaning = _env_meaning(key, float(a), float(b))
         except (TypeError, ValueError):
             pass
@@ -317,11 +320,17 @@ def _section_mainline(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> List[st
         "",
         "| 维度 | 数据 |",
         "| --- | --- |",
-        f"| 东财池涨停家数 | **{len(df)}** |",
-        f"| 池内行业首位 | **{theme}**（约 **{cnt}** 家） |",
     ]
+    if _has_zt_pool(df):
+        lines.append(f"| 东财池涨停家数 | **{len(df)}** |")
+        lines.append(f"| 池内行业首位 | **{theme}**（约 **{cnt}** 家） |")
+    elif lb:
+        lines.append(f"| 连板网涨停家数 | **{lb.zt}** |")
+        lines.append(f"| 连板网连板家数 | **{lb.lianban}** |")
     if lb:
         lines.append(f"| 连板网主线标签 | **{lb.themes}** |")
+        if lb.one_liner:
+            lines.append(f"| 当日结论 | {lb.one_liner} |")
     if lb and lb.ai_snippet:
         lines.append("")
         lines.append(f"**连板网 AI 摘要：** {lb.ai_snippet}")
@@ -496,6 +505,14 @@ def _one_liner(next_items: List[dict], next_date: str) -> str:
 
 
 def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> str:
+    orig_date = date
+    lb_cur = fetch_day_summary(date)
+    if not lb_cur:
+        lb_latest = fetch_latest_summary()
+        if lb_latest:
+            date = lb_latest.date_iso.replace("-", "")
+            lb_cur = lb_latest
+
     prev_d = prev_trade_date(date)
     nd = next_trade_date(date)
 
@@ -521,7 +538,8 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
         sm_prev = summarize_zt(df_prev, prev_d)
 
     df_line = _mainline_filter(df) if pool_ok else df
-    lb_cur = fetch_day_summary(date)
+    if not lb_cur:
+        lb_cur = fetch_day_summary(date)
     lb_prev = fetch_day_summary(prev_d)
     strict = _pick_strict(df_line if _has_zt_pool(df_line) else df)
 
@@ -531,10 +549,14 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
         f"**定版口径：** 东财涨停池 + [连板网](https://lianban.net/) {fmt_date(date)} 公开复盘；"
         "个股价以收盘池/日线为准。",
     ]
+    if orig_date != date:
+        header.append(
+            f"> 📅 自然日 `{fmt_date(orig_date)}` 尚无连板网定版，已改用最近归档 **{fmt_date(date)}**。"
+        )
     if not pool_ok:
         header.append(
             "> ⚠️ **东财涨停池未拉取**（云端限流时常见）：环境/主线以 **连板网** 为准；"
-            "观察名单价用 **新浪日线**；硬条件表可能为空。"
+            "观察名单价用 **新浪日线/实时**；硬条件表可能为空。"
         )
     header += [
         "",
