@@ -54,16 +54,37 @@ def _label(code: str, names: Dict[str, str]) -> str:
     return f"**{name}**（{c}）" if name else f"**{c}**"
 
 
-def _fmt_snap(code: str, snap: dict, names: Dict[str, str]) -> str:
-    lab = _label(code, names)
+def _snap_cells(
+    code: str,
+    snap: Optional[dict],
+    names: Dict[str, str],
+    *,
+    in_pool: bool = False,
+    mark_therm: bool = False,
+) -> tuple:
+    c = _norm_code(code)
+    name = names.get(c, c) + ("（体温）" if mark_therm else "")
+    if not snap:
+        return c, name, "—", "—", "—", "—", "无数据"
+    pool = "在池" if in_pool else "不在池"
+    open_txt = f"{snap['open']:.2f}"
     if snap.get("pct_open") is None:
-        return (
-            f"- {lab} 开{snap['open']:.2f} 现{snap['last']:.2f}（昨收缺失，暂不算%）"
-        )
-    return (
-        f"- {lab} 开 {snap['open']:.2f} ({snap['pct_open']:+.2f}%) "
-        f"现 {snap['last']:.2f} ({snap['pct_last']:+.2f}%) → {_auction_verdict(snap['pct_open'])}"
-    )
+        pct_o, pct_l, verdict = "—", "—", "—"
+    else:
+        pct_o = f"{snap['pct_open']:+.2f}%"
+        pct_l = f"{snap['pct_last']:+.2f}%"
+        verdict = _auction_verdict(float(snap["pct_open"]))
+    return c, name, open_txt, pct_o, pct_l, pool, verdict
+
+
+def _therm_row(code: str, snap: Optional[dict], names: Dict[str, str], in_pool: bool) -> str:
+    cells = _snap_cells(code, snap, names, in_pool=in_pool, mark_therm=True)
+    return "| " + " | ".join(cells) + " |"
+
+
+def _watch_row(idx: int, code: str, snap: Optional[dict], names: Dict[str, str], in_pool: bool) -> str:
+    c, name, _, pct_o, pct_l, pool, verdict = _snap_cells(code, snap, names, in_pool=in_pool)
+    return f"| {idx} | {c} | {name} | {pct_o} | {pct_l} | {pool} | {verdict} |"
 
 
 def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
@@ -119,17 +140,26 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         lines += format_lianban_section(lb, title=f"{fmt_date(list_date)} 收盘·连板网环境锚")
         lines.append("")
 
-    lines += ["### 体温计"]
+    lines += [
+        "### 体温计",
+        "",
+        "| 代码 | 名称 | 开盘 | 开盘% | 现价% | 池 | 裁决 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
     if thermometer:
         th = fetch_open_snapshot(thermometer, now_bj)
-        if th:
-            if th.get("name"):
-                pool_names[_norm_code(thermometer)] = str(th["name"])
-            lines.append(_fmt_snap(thermometer, th, pool_names))
-        else:
-            lines.append(f"- {_label(thermometer, pool_names)} 行情获取失败")
+        if th and th.get("name"):
+            pool_names[_norm_code(thermometer)] = str(th["name"])
+        lines.append(
+            _therm_row(
+                thermometer,
+                th,
+                pool_names,
+                _norm_code(thermometer) in zt_codes,
+            )
+        )
     else:
-        lines.append("- 未选出体温计；9:25 先看观察名单里板最高的一只")
+        lines.append("| — | 未选出 | — | — | — | — | — |")
 
     lines += [
         "",
@@ -139,6 +169,8 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         "",
         "### 观察名单",
         "",
+        "| # | 代码 | 名称 | 开盘% | 现价% | 池 | 裁决 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     scan: List[str] = []
     for c in active_watch:
@@ -149,24 +181,15 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     if therm_n and therm_n not in scan:
         scan.append(therm_n)
 
+    idx = 0
     for code in scan:
+        if code == therm_n:
+            continue
+        idx += 1
         snap = fetch_open_snapshot(code, now_bj)
-        in_pool = code in zt_codes
         if snap and snap.get("name"):
             pool_names[code] = str(snap["name"])
-        if not snap:
-            lines.append(f"- {_label(code, pool_names)} 无数据")
-            continue
-        pool = "在涨停池" if in_pool else "不在池"
-        if snap.get("pct_open") is None:
-            lines.append(
-                f"- {_label(code, pool_names)} 开{snap['open']:.2f} 现{snap['last']:.2f} {pool}（昨收缺失）"
-            )
-        else:
-            lines.append(
-                f"- {_label(code, pool_names)} 开{snap['pct_open']:+.2f}% 现{snap['pct_last']:+.2f}% "
-                f"{pool} → {_auction_verdict(snap['pct_open'])}"
-            )
+        lines.append(_watch_row(idx, code, snap, pool_names, code in zt_codes))
 
     lines += [
         "",

@@ -34,7 +34,10 @@ def main() -> int:
     except Exception as exc:
         print(f"Feishu send failed: {exc}", file=sys.stderr)
         return 1
-    print("OK auction report sent")
+    if img:
+        print(f"OK auction report sent with long image ({img})")
+    else:
+        print("OK auction report sent (text only, no image)")
     return 0
 
 
