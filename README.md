@@ -4,7 +4,7 @@
 
 | 任务 | 默认时间（北京时间） | 脚本 |
 |------|----------------------|------|
-| **收盘复盘 + 次日观察名单** | 工作日 **15:35** | `run_close.py` |
+| **收盘复盘 + 次日观察名单** | 工作日 **15:10** | `run_close.py` |
 | **竞价快报 + 观察名单裁决** | 工作日 **9:25** | `run_auction.py` |
 
 行情默认走 **akshare（东财/新浪）**；环境摘要另从 **[连板网 lianban.net](https://lianban.net/)** 拉公开复盘（日复盘页 + RSS）：情绪温度、封板率、主线、当日结论。收盘报告对照当日，竞价报告引用 **上一交易日** 作环境锚。
@@ -50,7 +50,7 @@ python run_auction.py
 Cron 说明（UTC）：
 
 - `25 1 * * 1-5` → 北京 **9:25** 竞价
-- `35 7 * * 1-5` → 北京 **15:35** 收盘
+- `10 7 * * 1-5` → 北京 **15:10** 收盘
 
 > GitHub 定时可能有 **几分钟延迟**；若要更准点，用下面 Mac 本机 cron。
 
@@ -67,7 +67,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 DRAGON=/Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
 
 25 9 * * 1-5 cd $DRAGON && /usr/bin/python3 run_auction.py >> logs/auction.log 2>&1
-35 15 * * 1-5 cd $DRAGON && /usr/bin/python3 run_close.py >> logs/close.log 2>&1
+10 15 * * 1-5 cd $DRAGON && /usr/bin/python3 run_close.py >> logs/close.log 2>&1
 ```
 
 需保证 Mac **唤醒** 且已 `pip install -r requirements.txt`、配置 `.env`。
@@ -76,7 +76,7 @@ DRAGON=/Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
 
 | 能力 | DSA | 本项目 |
 |------|-----|--------|
-| 定时 | Actions `00-daily-analysis.yml` 18:00 | 9:25 + 15:35 双任务 |
+| 定时 | Actions `00-daily-analysis.yml` 18:00 | 9:25 + 15:10 双任务 |
 | 飞书 | `FEISHU_WEBHOOK_URL` | 相同 |
 | 内容 | 自选股 AI 决策仪表盘 | **龙头战法** 涨停池 + 观察名单 + 自动体温计 |
 | LLM | 必选其一 API Key | **可选** `OPENAI_*` 润色 |
