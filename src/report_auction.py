@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List
 
+from src.lianban_net import fetch_day_summary, format_lianban_section, prior_trade_date_yyyymmdd
 from src.market_data import fetch_open_snapshot, latest_trade_date, fetch_zt_pool
 
 
@@ -47,6 +48,12 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     ]
     if zt is None:
         lines += ["> ⚠️ 涨停池拉取失败（数据源限流），仅展示观察名单竞价。", ""]
+
+    prev = prior_trade_date_yyyymmdd(now)
+    lb = fetch_day_summary(prev)
+    if lb:
+        lines += format_lianban_section(lb, title="昨收·连板网环境锚")
+        lines.append("")
 
     lines += ["### 体温计"]
     th = fetch_open_snapshot(thermometer, now)

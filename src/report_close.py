@@ -8,6 +8,7 @@ from typing import List
 
 import pandas as pd
 
+from src.lianban_net import fetch_day_summary, format_lianban_section
 from src.market_data import (
     fetch_watchlist_rows,
     fetch_zt_pool,
@@ -46,9 +47,15 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     lines = [
         f"## 📊 {date[:4]}-{date[4:6]}-{date[6:8]} 收盘复盘（龙头战法）",
         "",
-        "### 环境",
+        "### 环境（东财涨停池）",
         f"- 涨停 **{sm.count}** 家 | 连板≥2 **{sm.lianban_ge2}** 家 | 最高 **{sm.max_height}** 板",
         "",
+    ]
+    lb = fetch_day_summary(date)
+    if lb:
+        lines += format_lianban_section(lb, title="连板网对照")
+        lines.append("")
+    lines += [
         "### 规则内优选（硬条件过关，最多5）",
     ]
     if watch.empty:
