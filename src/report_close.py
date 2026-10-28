@@ -12,7 +12,13 @@ import pandas as pd
 from src.lianban_net import LianbanSummary, fetch_day_summary, fetch_latest_summary
 from src.market_data import fetch_code_quote, fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
-from src.watchlist import resolve_thermometer, resolve_watch_codes, thermometer_source_note, watchlist_source_note
+from src.watchlist import (
+    mainline_pool,
+    resolve_thermometer,
+    resolve_watch_codes,
+    thermometer_source_note,
+    watchlist_source_note,
+)
 
 
 def _has_zt_pool(df: pd.DataFrame) -> bool:
@@ -263,9 +269,7 @@ def _mainline_narrative(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> str:
     kw = os.environ.get("MAINLINE_KEYWORD", "机器人").strip() or "机器人"
     cnt = 0
     if _has_zt_pool(df):
-        col = "所属行业" if "所属行业" in df.columns else None
-        if col:
-            cnt = int(df[df[col].astype(str).str.contains(kw, na=False)].shape[0])
+        cnt = int(len(mainline_pool(df)))
         theme = kw
     elif lb and lb.themes:
         theme = lb.themes.split("、")[0]

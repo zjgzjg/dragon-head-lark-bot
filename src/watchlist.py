@@ -7,6 +7,8 @@ from typing import List
 
 import pandas as pd
 
+_CONSUMER_HINT = r"消费|零售|食品|百货|商业|餐饮|酿酒|旅游|酒店|乳业|预制菜|电商"
+
 
 def parse_manual_watchlist() -> List[str]:
     raw = os.environ.get("WATCHLIST", "").strip()
@@ -34,28 +36,74 @@ def _hard_pass(row: pd.Series) -> bool:
     )
 
 
-def _mainline_filter(df: pd.DataFrame) -> pd.DataFrame:
-    kw = os.environ.get("MAINLINE_KEYWORD", "").strip()
-    if not kw or df.empty:
+def _mainline_keyword() -> str:
+    return os.environ.get("MAINLINE_KEYWORD", "").strip()
+
+
+def _text_columns(df: pd.DataFrame) -> List[str]:
+    preferred = ["所属行业", "涨停原因", "所属概念", "板块", "题材", "涨停统计"]
+    cols = [c for c in preferred if c in df.columns]
+    if cols:
+        return cols
+    return [
+        c
+        for c in df.columns
+        if any(x in str(c) for x in ("行业", "原因", "概念", "板块", "题材"))
+    ]
+
+
+def _consumer_mask(df: pd.DataFrame) -> pd.Series:
+    cols = [c for c in ["所属行业", "涨停原因", "名称"] if c in df.columns]
+    if not cols:
+        return pd.Series(False, index=df.index)
+    text = df[cols].astype(str).agg(" ".join, axis=1)
+    return text.str.contains(_CONSUMER_HINT, na=False, regex=True)
+
+
+def _mainline_match_mask(df: pd.DataFrame, kw: str) -> pd.Series:
+    cols = _text_columns(df)
+    if not cols:
+        return pd.Series(False, index=df.index)
+    mask = pd.Series(False, index=df.index)
+    for col in cols:
+        mask |= df[col].astype(str).str.contains(kw, na=False, regex=False)
+    return mask
+
+
+def mainline_pool(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    主线票集合：先按关键字扫行业/涨停原因/概念等；若无命中（东财行业常无「机器人」），
+    则去掉消费支线后作为观察宇宙，避免把上海九百这类全市场高度误当机器人体温计。
+    """
+    if not _has_zt_pool(df):
+        return pd.DataFrame()
+    kw = _mainline_keyword()
+    if not kw:
         return df
-    col = "所属行业" if "所属行业" in df.columns else None
-    if col:
-        return df[df[col].astype(str).str.contains(kw, na=False)]
-    return df
+    matched = df[_mainline_match_mask(df, kw)]
+    if not matched.empty:
+        return matched
+    rest = df[~_consumer_mask(df)]
+    return rest if not rest.empty else df
+
+
+def _mainline_filter(df: pd.DataFrame) -> pd.DataFrame:
+    return mainline_pool(df)
 
 
 def pick_auto_thermometer(df: pd.DataFrame) -> str:
     """
-    体温计：主线（MAINLINE_KEYWORD）里当日空间龙，用来读次日竞价「权限」。
+    体温计：主线宇宙里的空间龙（非全市场消费高度）。
     排序：连板最高 → 首封更早 → 封单更软（更偏情绪标，默认不当买点）。
     """
     if not _has_zt_pool(df):
         return ""
-    base = _mainline_filter(df)
-    if base.empty:
-        base = df
+    base = mainline_pool(df)
     if base.empty:
         return ""
+    if _mainline_keyword():
+        h = int(base["连板数"].max())
+        base = base[base["连板数"] == h]
     sub = base.sort_values(
         ["连板数", "首次封板时间", "封单比"],
         ascending=[False, True, True],
@@ -86,7 +134,9 @@ def thermometer_source_note(code: str) -> str:
         return f"体温计：**手动 THERMOMETER**（`{code}`）"
     if not code:
         return "体温计：涨停池缺失，未指定"
-    return f"体温计：**主线空间龙自动生成**（`{code}`）"
+    kw = _mainline_keyword()
+    hint = f"主线「{kw}」" if kw else "主线"
+    return f"体温计：**{hint}空间龙自动生成**（`{code}`，不含消费支线全市场高度）"
 
 
 def pick_auto_watch_codes(
@@ -97,9 +147,9 @@ def pick_auto_watch_codes(
     """从收盘涨停池按硬条件 + 主线 + 排序生成次日观察代码（不含体温计）。"""
     if not _has_zt_pool(df):
         return []
-    base = _mainline_filter(df)
+    base = mainline_pool(df)
     if base.empty:
-        base = df
+        return []
     sub = base[base["连板数"] >= 2].copy()
     if sub.empty:
         return []
