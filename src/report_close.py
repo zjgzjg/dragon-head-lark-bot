@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -241,238 +242,228 @@ def _build_next_watchlist(
     return items[:max_n]
 
 
-def _section_env(
-    date: str,
-    prev_d: str,
-    sm_cur,
-    sm_prev,
-    lb_cur: Optional[LianbanSummary],
-    lb_prev: Optional[LianbanSummary],
-) -> List[str]:
-    def val_lb(lb: Optional[LianbanSummary], attr: str, fallback: str = "—") -> str:
-        if not lb:
-            return fallback
-        v = getattr(lb, attr, None)
-        if v is None:
-            return fallback
-        if attr == "seal_rate":
-            return f"{v:.1f}%"
-        if attr == "max_board":
-            return f"{int(v)}板"
-        if attr == "temp":
-            return f"{v:.0f}°"
-        return str(v)
-
-    prev_zt = lb_prev.zt if lb_prev else sm_prev.count
-    cur_zt = lb_cur.zt if lb_cur else (sm_cur.count if sm_cur.count else "—")
-    prev_dt = lb_prev.dt if lb_prev else "—"
-    cur_dt = lb_cur.dt if lb_cur else "—"
-    prev_seal = f"{lb_prev.seal_rate:.1f}%" if lb_prev else "—"
-    cur_seal = f"{lb_cur.seal_rate:.1f}%" if lb_cur else "—"
-    prev_h = lb_prev.max_board if lb_prev else sm_prev.max_height
-    cur_h = lb_cur.max_board if lb_cur else (f"{sm_cur.max_height}板" if sm_cur.max_height else "—")
-    prev_temp = lb_prev.temp if lb_prev and lb_prev.temp is not None else None
-    cur_temp = lb_cur.temp if lb_cur and lb_cur.temp is not None else None
-
-    lines = [
-        "## 一、环境",
-        "",
-        "| 指标 | {} | {} 收盘 | 含义 |".format(
-            fmt_date(prev_d), fmt_date(date)
-        ),
-        "| --- | --- | --- | --- |",
-    ]
-    rows = [
-        ("涨停", prev_zt, cur_zt, "zt"),
-        ("跌停", prev_dt, cur_dt, "dt"),
-        ("封板率", prev_seal, cur_seal, "seal"),
-        ("最高板", f"{prev_h}板" if isinstance(prev_h, int) else prev_h, f"{cur_h}板" if isinstance(cur_h, int) else cur_h, "height"),
-    ]
-    for label, a, b, key in rows:
-        meaning = "—"
-        try:
-            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-                meaning = _env_meaning(key, float(a), float(b))
-        except (TypeError, ValueError):
-            pass
-        lines.append(f"| {label} | {a} | {b} | {meaning} |")
-
-    emo_prev = f"{lb_prev.phase} {val_lb(lb_prev, 'temp')}" if lb_prev else "—"
-    emo_cur = f"{lb_cur.phase} {val_lb(lb_cur, 'temp')}" if lb_cur else "—"
-    temp_mean = "—"
-    if prev_temp is not None and cur_temp is not None:
-        temp_mean = _env_meaning("temp", prev_temp, cur_temp)
-    lines += [
-        f"| 情绪 | {emo_prev} | {emo_cur} | {temp_mean} |",
-        "",
-        f"**大前提对应动作：** {_premise_action(lb_cur)}",
-    ]
-    if lb_cur and lb_cur.one_liner:
-        lines.append(f"\n> 连板网结论：{lb_cur.one_liner}")
-    return lines
+def _md_short(yyyymmdd: str) -> str:
+    return f"{yyyymmdd[4:6]}/{yyyymmdd[6:8]}"
 
 
-def _section_mainline(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> List[str]:
-    theme, cnt = _top_theme(df)
-    lines = [
-        "",
-        "## 二、主线",
-        "",
-        "| 维度 | 数据 |",
-        "| --- | --- |",
-    ]
+def _first_time_fmt(t: int) -> str:
+    t = int(t)
+    return f"{t // 10000:02d}:{(t // 100) % 100:02d}"
+
+
+def _pool_row(df: pd.DataFrame, code: str) -> Optional[pd.Series]:
+    if not _has_zt_pool(df):
+        return None
+    r = df[df["代码"].astype(str) == code.strip()]
+    return r.iloc[0] if len(r) else None
+
+
+def _mainline_narrative(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> str:
+    kw = os.environ.get("MAINLINE_KEYWORD", "机器人").strip() or "机器人"
+    cnt = 0
     if _has_zt_pool(df):
-        lines.append(f"| 东财池涨停家数 | **{len(df)}** |")
-        lines.append(f"| 池内行业首位 | **{theme}**（约 **{cnt}** 家） |")
-    elif lb:
-        lines.append(f"| 连板网涨停家数 | **{lb.zt}** |")
-        lines.append(f"| 连板网连板家数 | **{lb.lianban}** |")
-    if lb:
-        lines.append(f"| 连板网主线标签 | **{lb.themes}** |")
-        if lb.one_liner:
-            lines.append(f"| 当日结论 | {lb.one_liner} |")
-    if lb and lb.ai_snippet:
-        lines.append("")
-        lines.append(f"**连板网 AI 摘要：** {lb.ai_snippet}")
-    lines.append("")
-    lines.append(
-        "**四步「认龙头」提示：** 以 **首封时间** + **硬条件表** 为准；"
-        "名在池内但炸板/换手/封单不过关 → 只观察不接力。"
-    )
-    return lines
+        col = "所属行业" if "所属行业" in df.columns else None
+        if col:
+            cnt = int(df[df[col].astype(str).str.contains(kw, na=False)].shape[0])
+        theme = kw
+    elif lb and lb.themes:
+        theme = lb.themes.split("、")[0]
+        cnt = lb.zt // 3
+        if lb.ai_snippet:
+            m = re.search(r"机器人[^\d]{0,12}(\d+)只", lb.ai_snippet)
+            if m:
+                cnt = int(m.group(1))
+                theme = "机器人"
+    else:
+        theme, cnt = _top_theme(df)
+    tail = "，但 **缩圈抱团**" if lb and "冰点" in (lb.phase or "") else ""
+    return f"**{theme}**（约 **{cnt}** 家）{tail}"
 
 
-def _section_prev_watch(watch_codes: List[str], df: pd.DataFrame) -> List[str]:
-    lines = ["", "## 三、与前一日观察名单对照", "", "| 代码 | 名称 | 今日表现 | 备注 |", "| --- | --- | --- | --- |"]
-    if not watch_codes:
-        lines.append("| — | — | 未配置 WATCHLIST | — |")
-        return lines
-    for code in watch_codes:
-        code = code.strip()
-        if not code:
-            continue
-        row = df[df["代码"].astype(str) == code] if _has_zt_pool(df) else pd.DataFrame()
-        if len(row):
-            r = row.iloc[0]
-            perf = f"{int(r['连板数'])}板 收{float(r['最新价']):.2f} 炸{int(r['炸板次数'])}"
-            note = "硬条件过关" if _hard_pass(r) else "；".join(_veto_reasons(r))
-        else:
-            wr = fetch_watchlist_rows([code], df)
-            if wr and not wr[0].get("error"):
-                w = wr[0]
-                if w.get("in_zt"):
-                    perf = f"{w.get('height')}板 收{w['close']:.2f}"
-                else:
-                    perf = f"收{w.get('close', '—')} ({w.get('pct', 0):+.2f}%)" if w.get("pct") is not None else "未涨停"
-                note = "不在今日涨停池"
-            else:
-                perf = "—"
-                note = "数据缺失"
-        name = row.iloc[0]["名称"] if len(row) else code
-        lines.append(f"| {code} | {name} | {perf} | {note} |")
-    return lines
+def _height_narrative(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> str:
+    if not _has_zt_pool(df):
+        if lb:
+            return f"最高 **{lb.max_board}板**（连板网）"
+        return "—"
+    max_h = int(df["连板数"].max())
+    parts: List[str] = []
+    sub = max_h - 1
+    if sub >= 2:
+        sub_df = df[df["连板数"] == sub]
+        if len(sub_df):
+            names = sub_df["名称"].astype(str).tolist()[:5]
+            parts.append(f"**{sub}板** {len(sub_df)} 只：{'、'.join(names)}")
+    top = df[df["连板数"] == max_h]
+    for _, row in top.iterrows():
+        ind = str(row.get("所属行业", ""))
+        tag = "消费 " if any(k in ind for k in ("零售", "消费", "食品")) else ""
+        parts.append(f"{tag}**{row['名称']}** **{max_h}板**")
+    return "；".join(parts) if parts else f"最高 **{max_h}板**"
 
 
-def _section_watch_plan(
-    date: str,
-    strict: pd.DataFrame,
-    df: pd.DataFrame,
+def _position_narrative(lb: Optional[LianbanSummary], therm_name: str) -> str:
+    if not lb:
+        return "≤半仓；只做硬筹码"
+    if "冰点" in lb.phase:
+        return f"**≤半仓 / 偏空**；**{therm_name}** 只当体温计"
+    if "退潮" in lb.phase:
+        return f"**≤半仓**；**{therm_name}** 只当体温计"
+    return f"控制仓位；**{therm_name}** 只当体温计"
+
+
+def _hard_note(code: str, df: pd.DataFrame, best_seal: float) -> str:
+    r = _pool_row(df, code)
+    if r is None:
+        return "不在涨停池"
+    reasons = _veto_reasons(r)
+    if not reasons:
+        return "严格过关"
+    note = "；".join(reasons)
+    seal = float(r["封单比"])
+    if best_seal > 0 and abs(seal - best_seal) < 0.05:
+        note = f"**相对最硬**（仍 {note}）" if seal < 3 else "**相对最硬**"
+    return note
+
+
+def _auto_role(code: str, df: pd.DataFrame, roles: Dict[str, str], thermometer: str) -> str:
+    if code == thermometer:
+        return roles.get(code, "只当体温计，默认不买")
+    if roles.get(code):
+        return roles[code]
+    r = _pool_row(df, code)
+    if r is not None:
+        ft = _first_time_fmt(int(r["首次封板时间"]))
+        z = int(r["炸板次数"])
+        t = float(r["换手率"])
+        h = int(r["连板数"])
+        qual = "质量龙" if z == 0 and t <= 5 else ""
+        return f"{h}板 · 首封{ft} · {z}炸 · 换{t:.1f}%{(' · ' + qual) if qual else ''}"
+    return "观察池"
+
+
+def _close_cell(code: str, df: pd.DataFrame, trade_date: str) -> Tuple[str, float]:
+    r = _pool_row(df, code)
+    if r is not None:
+        return "涨停", float(r["最新价"])
+    q = fetch_code_quote(code, trade_date)
+    if q.get("error"):
+        return "—", 0.0
+    close = float(q["close"])
+    if q.get("in_zt"):
+        return "涨停", close
+    pct = q.get("pct")
+    if pct is not None:
+        return f"{close:.2f} ({pct:+.2f}%)", close
+    return f"{close:.2f}", close
+
+
+def build_watch_table_rows(
     watch_codes: List[str],
     thermometer: str,
+    df: pd.DataFrame,
+    trade_date: str,
+    max_n: int = 5,
+) -> List[dict]:
+    roles = _parse_roles()
+    codes: List[str] = []
+    for c in watch_codes:
+        c = c.strip()
+        if c and c != thermometer and c not in codes:
+            codes.append(c)
+    codes = codes[: max_n - 1]
+    if thermometer and thermometer not in codes:
+        codes.append(thermometer)
+
+    seals: List[float] = []
+    for c in codes:
+        r = _pool_row(df, c)
+        if r is not None:
+            seals.append(float(r["封单比"]))
+    best_seal = max(seals) if seals else 0.0
+
+    rows: List[dict] = []
+    for i, code in enumerate(codes, 1):
+        close_txt, close = _close_cell(code, df, trade_date)
+        r = _pool_row(df, code)
+        name = str(r["名称"]) if r is not None else fetch_code_quote(code, trade_date).get("name", code)
+        rows.append(
+            {
+                "idx": i,
+                "code": code,
+                "name": name,
+                "role": _auto_role(code, df, roles, thermometer),
+                "close_txt": close_txt,
+                "close": close,
+                "limit": _limit_up_price(code, close) if close else 0,
+                "hard_note": _hard_note(code, df, best_seal),
+            }
+        )
+    return rows
+
+
+def _section_env_compact(
+    date: str,
+    nd: str,
+    lb_cur: Optional[LianbanSummary],
+    df: pd.DataFrame,
+    thermometer: str,
+    therm_name: str,
 ) -> List[str]:
-    nd = next_trade_date(date)
+    zt = lb_cur.zt if lb_cur else (len(df) if _has_zt_pool(df) else "—")
+    dt = lb_cur.dt if lb_cur else "—"
+    seal = f"{lb_cur.seal_rate:.0f}%" if lb_cur else "—"
+    temp = f"{lb_cur.temp:.0f}°" if lb_cur and lb_cur.temp is not None else "—"
+    phase = lb_cur.phase.replace("期", "") if lb_cur else "—"
+    emo = f"**{phase}** ~**{temp}**（{zt} 涨停、{dt} 跌停、封板率 ~{seal}）"
+    return [
+        "",
+        f"## 一、{_md_short(date)} 收盘环境 → {_md_short(nd)} 名单前提",
+        "",
+        "| 环境 | 数据 |",
+        "| --- | --- |",
+        f"| **情绪** | {emo} |",
+        f"| **主线** | {_mainline_narrative(df, lb_cur)} |",
+        f"| **高度** | {_height_narrative(df, lb_cur)} |",
+        f"| **仓位** | {_position_narrative(lb_cur, therm_name)} |",
+    ]
+
+
+def _section_watch_table(date: str, nd: str, rows: List[dict]) -> List[str]:
+    lines = [
+        "",
+        f"## 二、{_md_short(nd)} 观察名单（{_md_short(date)} 收盘后应写进笔记的 **{len(rows)}** 只）",
+        "",
+        f"| # | 代码 | 名称 | 角色 | {_md_short(date)} 收 | 硬条件备注 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for r in rows:
+        lines.append(
+            f"| {r['idx']} | {r['code']} | {r['name']} | {r['role']} | "
+            f"{r['close_txt']} | {r['hard_note']} |"
+        )
+    return lines
+
+
+def _section_triggers(nd: str, rows: List[dict], thermometer: str) -> List[str]:
     nd_label = f"{fmt_date(nd)}（{weekday_cn(nd)}）"
     lines = [
         "",
-        "## 四、今日观察名单 + 次日预案",
+        f"## 三、{nd_label} 触发价 & 止损（昨收为锚）",
         "",
-        "### 4.1 硬条件筛完（涨停池）",
-        "",
-        "| 条件 | 说明 |",
-        "| --- | --- |",
-        "| 连板 ≥2 | 与主线方向一致（可设 MAINLINE_KEYWORD） |",
-        "| 封单占流通 ≥3% | 硬门槛 |",
-        "| 炸板 <3 | 硬门槛 |",
-        "| 换手 ≤20% | 硬门槛 |",
-        "| 非 14:00 后首封 | 硬门槛 |",
-        "",
-        "**严格过关：**",
-        "",
-        "| 代码 | 名称 | 板数 | 首封 | 封单比 | 炸 | 换手 |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| 代码 | 名称 | 昨收 | 涨停价 | 竞价/买点/止损 |",
+        "| --- | --- | --- | --- | --- |",
     ]
-    if strict.empty:
-        lines.append("| — | 无 | — | — | — | — | — |")
-    else:
-        for _, r in strict.iterrows():
+    rule = "低开>2%删；9:35–9:45承接；止损昨收或开×0.97"
+    for r in rows:
+        if r["code"] == thermometer:
             lines.append(
-                f"| {r['代码']} | {r['名称']} | {int(r['连板数'])}板 | {r['首次封板时间']} | "
-                f"{r['封单比']:.2f}% | {int(r['炸板次数'])} | {r['换手率']:.1f}% |"
+                f"| {r['code']} | {r['name']}（体温） | {r['close']:.2f} | {r['limit']:.2f} | "
+                "一字/回封=权限↑；低开>2%或15分不回封=关闭 |"
             )
-
-    lines += ["", "**否决（勿进接力池）：**"]
-    veto_lines: List[str] = []
-    codes_check = set(watch_codes) | (
-        set(strict["代码"].astype(str).tolist()) if len(strict) else set()
-    )
-    for code in codes_check:
-        code = str(code).strip()
-        if not _has_zt_pool(df):
-            break
-        row = df[df["代码"].astype(str) == code]
-        if not len(row):
-            continue
-        r = row.iloc[0]
-        if _hard_pass(r):
-            continue
-        reasons = _veto_reasons(r)
-        if reasons:
-            veto_lines.append(f"- **{r['名称']}** `{code}`：{'；'.join(reasons)}")
-    if not _has_zt_pool(df):
-        lines.append("- ⚠️ 东财涨停池不可用（如 GitHub Actions），否决线请本地/连板网人工核对。")
-    else:
-        lines.extend(veto_lines or ["- （池内连板票均须个别核对）"])
-
-    next_items = _build_next_watchlist(strict, watch_codes, df, thermometer)
-    lines += [
-        "",
-        f"### 4.2 **{nd_label}** 观察名单（{len(next_items)} 只）",
-        "",
-        "| # | 代码 | 名称 | 角色 | 今收 | 次日涨停价（约） |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    for i, it in enumerate(next_items, 1):
-        lines.append(
-            f"| {i} | {it['code']} | {it['name']} | {it['role']} | "
-            f"{it['close']:.2f} | {it['limit']:.2f} |"
-        )
-
-    lines += ["", f"### 4.3 **{nd_label}** 触发价 & 止损（今收为锚）", ""]
-    for it in next_items:
-        if it["code"] == thermometer:
-            lines += [
-                f"#### {it['name']} `{it['code']}`（体温计）",
-                "",
-                "| 体温 | 次日动作 |",
-                "| --- | --- |",
-                "| 一字 / 快速回封 | 主线权限↑；仍可不买买体温计 |",
-                "| 低开 >2% 或破昨收且收不回 | 观察名单降级或关闭 |",
-                "| 开板 15 分钟不回封 | 全线关闭 |",
-                "",
-            ]
-            continue
-        c, o = it["close"], it["close"] * 0.97
-        lines += [
-            f"#### {it['name']} `{it['code']}`",
-            "",
-            "| 项目 | 规则 |",
-            "| --- | --- |",
-            f"| 竞价 | 低开 >2% → 删；一字 → 不买，只确认板块 |",
-            f"| 买入触发 | 9:30–9:40 不破开 + 放量 + 板块同步；**9:35–9:45** |",
-            f"| 可接受区 | 平开～+3%；不追 >7% |",
-            f"| 止损 | 昨收 **{c:.2f}** 或 当日开盘价 ×0.97 |",
-            "",
-        ]
+        else:
+            lines.append(
+                f"| {r['code']} | {r['name']} | {r['close']:.2f} | {r['limit']:.2f} | {rule} |"
+            )
     return lines
 
 
@@ -480,7 +471,7 @@ def _section_exec(next_date: str) -> List[str]:
     nd = fmt_date(next_date)
     return [
         "",
-        "## 五、执行顺序（9:25 → 10:00）",
+        "## 四、执行顺序（9:25 → 10:00）",
         "",
         "```",
         f"9:25  先看体温计 → 定「可玩 / 只观察 / 关闭」",
@@ -495,9 +486,9 @@ def _section_exec(next_date: str) -> List[str]:
     ]
 
 
-def _one_liner(next_items: List[dict], next_date: str) -> str:
-    codes = [x for x in next_items if "体温计" not in x["role"]]
-    main = "、".join(f"「{x['name']}」" for x in codes[:2]) or "硬板龙头"
+def _one_liner(watch_rows: List[dict], next_date: str, thermometer: str) -> str:
+    picks = [x for x in watch_rows if x["code"] != thermometer]
+    main = "、".join(f"「{x['name']}」" for x in picks[:2]) or "硬板龙头"
     return (
         f"**{fmt_date(next_date)}** 只盯：{main} 为主力观察，体温计定开关；"
         "退潮下半仓，竞价只否决、**9:35–9:45** 才执行。"
@@ -537,11 +528,8 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     except Exception:
         sm_prev = summarize_zt(df_prev, prev_d)
 
-    df_line = _mainline_filter(df) if pool_ok else df
     if not lb_cur:
         lb_cur = fetch_day_summary(date)
-    lb_prev = fetch_day_summary(prev_d)
-    strict = _pick_strict(df_line if _has_zt_pool(df_line) else df)
 
     header = [
         f"# {fmt_date(date)}（{weekday_cn(date)}）收盘复盘",
@@ -560,27 +548,23 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
         )
     header += [
         "",
-        "**目录**",
-        "1. 环境",
-        "2. 主线",
-        "3. 与前一日观察名单对照",
-        "4. 观察名单 + 次日预案",
-        "5. 执行顺序",
-        "6. 一句话",
+        "**目录**：① 环境→名单前提 ② 观察名单 ③ 触发止损 ④ 执行顺序 ⑤ 一句话",
         "",
     ]
 
     df_for_watch = df if pool_ok else df
     df_for_watch.attrs["date"] = date
-    next_items = _build_next_watchlist(strict, watch_codes, df_for_watch, thermometer)
+    watch_rows = build_watch_table_rows(watch_codes, thermometer, df_for_watch, date)
+    therm_name = next((r["name"] for r in watch_rows if r["code"] == thermometer), thermometer)
 
     parts = header
-    parts += _section_env(date, prev_d, sm_cur, sm_prev, lb_cur, lb_prev)
-    parts += _section_mainline(df, lb_cur)
-    parts += _section_prev_watch(watch_codes, df_for_watch)
-    parts += _section_watch_plan(date, strict, df_for_watch, watch_codes, thermometer)
+    parts += _section_env_compact(date, nd, lb_cur, df, thermometer, therm_name)
+    if lb_cur and lb_cur.one_liner:
+        parts.append(f"\n> 连板网：{lb_cur.one_liner}")
+    parts += _section_watch_table(date, nd, watch_rows)
+    parts += _section_triggers(nd, watch_rows, thermometer)
     parts += _section_exec(nd)
-    parts += ["", "## 六、一句话", "", _one_liner(next_items, nd), "", "> 方法论复盘，不构成投资建议。"]
+    parts += ["", "## 五、一句话", "", _one_liner(watch_rows, nd, thermometer), "", "> 方法论复盘，不构成投资建议。"]
     return "\n".join(parts)
 
 
@@ -604,13 +588,13 @@ def maybe_llm_polish(text: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "你是 A 股短线复盘助手。只补充「二、主线」下 2–4 句叙述"
-                        "（换龙头/杀高度/资金分流），保留全部表格与数字不变，不要删目录。"
+                        "你是 A 股短线复盘助手。只补充「一、环境」表格中「高度/主线」行后的半句叙述，"
+                        "保留全部表格与数字不变。"
                     ),
                 },
                 {
                     "role": "user",
-                    "content": f"{method}\n\n在下列报告中仅扩写「二、主线」段落：\n\n{text}",
+                    "content": f"{method}\n\n在下列报告中仅扩写环境表中高度/主线相关表述：\n\n{text}",
                 },
             ],
             temperature=0.3,
