@@ -5,7 +5,7 @@
 | 任务 | 默认时间（北京时间） | 脚本 |
 |------|----------------------|------|
 | **收盘复盘 + 次日观察名单** | 工作日 **15:35** | `run_close.py` |
-| **竞价快报 + 观察名单裁决** | 工作日 **9:28** | `run_auction.py` |
+| **竞价快报 + 观察名单裁决** | 工作日 **9:25** | `run_auction.py` |
 
 ## 1. 飞书群机器人（推荐，与 DSA 相同）
 
@@ -39,10 +39,10 @@ python run_auction.py
 
 Cron 说明（UTC）：
 
-- `28 1 * * 1-5` → 北京 **9:28** 竞价
+- `25 1 * * 1-5` → 北京 **9:25** 竞价
 - `35 7 * * 1-5` → 北京 **15:35** 收盘
 
-> GitHub 定时可能有 **几分钟延迟**；若要卡 9:25 准点，用下面 Mac 本机 cron。
+> GitHub 定时可能有 **几分钟延迟**；若要更准点，用下面 Mac 本机 cron。
 
 ## 4. Mac 本机定时（准点）
 
@@ -56,7 +56,7 @@ SHELL=/bin/zsh
 PATH=/usr/local/bin:/usr/bin:/bin
 DRAGON=/Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
 
-28 9 * * 1-5 cd $DRAGON && /usr/bin/python3 run_auction.py >> logs/auction.log 2>&1
+25 9 * * 1-5 cd $DRAGON && /usr/bin/python3 run_auction.py >> logs/auction.log 2>&1
 35 15 * * 1-5 cd $DRAGON && /usr/bin/python3 run_close.py >> logs/close.log 2>&1
 ```
 
@@ -66,12 +66,12 @@ DRAGON=/Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
 
 | 能力 | DSA | 本项目 |
 |------|-----|--------|
-| 定时 | Actions `00-daily-analysis.yml` 18:00 | 9:28 + 15:35 双任务 |
+| 定时 | Actions `00-daily-analysis.yml` 18:00 | 9:25 + 15:35 双任务 |
 | 飞书 | `FEISHU_WEBHOOK_URL` | 相同 |
 | 内容 | 自选股 AI 决策仪表盘 | **龙头战法** 涨停池 + 观察名单 + 大业体温计 |
 | LLM | 必选其一 API Key | **可选** `OPENAI_*` 润色 |
 
-若要 **完全用 DSA 跑**：Fork DSA，在 `STOCK_LIST` 填观察代码，另加一条 workflow 在 9:28 跑自定义脚本；或把本仓库 `src/` 拷入 DSA 作为 `scripts/dragon_head/` 调用。
+若要 **完全用 DSA 跑**：Fork DSA，在 `STOCK_LIST` 填观察代码，另加一条 workflow 在 9:25 跑自定义脚本；或把本仓库 `src/` 拷入 DSA 作为 `scripts/dragon_head/` 调用。
 
 ## 6. 用 lark-cli 发群（可选）
 

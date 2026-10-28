@@ -2,8 +2,8 @@ name: 龙头战法飞书推送
 
 on:
   schedule:
-    # 北京时间 9:28 竞价后（UTC 1:28，周一到周五）
-    - cron: "28 1 * * 1-5"
+    # 北京时间 9:25 竞价（UTC 1:25，周一到周五）
+    - cron: "25 1 * * 1-5"
     # 北京时间 15:35 收盘后（UTC 7:35，周一到周五）
     - cron: "35 7 * * 1-5"
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
       - name: 竞价快报
         if: |
           github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'auction' ||
-          github.event_name == 'schedule' && github.event.schedule == '28 1 * * 1-5'
+          github.event_name == 'schedule' && github.event.schedule == '25 1 * * 1-5'
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
