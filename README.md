@@ -19,7 +19,7 @@
 
 1. 飞书群 → **设置** → **群机器人** → **添加机器人** → **自定义机器人**
 2. 复制 **Webhook 地址**，可选开启 **签名校验**
-3. **长图表格推送（推荐）**：在 [飞书开放平台](https://open.feishu.cn/) 建企业自建应用，开通 **发送消息 / 上传图片** 权限，把 `App ID`、`App Secret` 配到 Secrets（`FEISHU_APP_ID`、`FEISHU_APP_SECRET`）。推送时会 **先发一张渲染好的长图（含表格）**，再发原文 Markdown。
+3. **长图表格推送（推荐）**：在 [飞书开放平台](https://open.feishu.cn/) 建企业自建应用，开通 **发送消息 / 上传图片** 权限，把 `App ID`、`App Secret` 配到 Secrets（`FEISHU_APP_ID`、`FEISHU_APP_SECRET`）。**收盘复盘、竞价快报** 均会 **先发长图（含表格）**，再发 Markdown 文本。
 4. 写入 `.env` 或 GitHub Secrets：
 
 ```bash
