@@ -44,6 +44,51 @@ def _mainline_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def pick_auto_thermometer(df: pd.DataFrame) -> str:
+    """
+    体温计：主线（MAINLINE_KEYWORD）里当日空间龙，用来读次日竞价「权限」。
+    排序：连板最高 → 首封更早 → 封单更软（更偏情绪标，默认不当买点）。
+    """
+    if not _has_zt_pool(df):
+        return ""
+    base = _mainline_filter(df)
+    if base.empty:
+        base = df
+    if base.empty:
+        return ""
+    sub = base.sort_values(
+        ["连板数", "首次封板时间", "封单比"],
+        ascending=[False, True, True],
+    )
+    return str(sub.iloc[0]["代码"])
+
+
+def resolve_thermometer(df: pd.DataFrame) -> str:
+    """
+    THERMOMETER_MODE:
+    - auto（默认）：规则选主线空间龙；未填 THERMOMETER 时完全自动
+    - manual：仅 THERMOMETER 环境变量
+    若 auto 且设置了 THERMOMETER，视为当日手动钉住（覆盖自动）。
+    """
+    manual = os.environ.get("THERMOMETER", "").strip()
+    mode = os.environ.get("THERMOMETER_MODE", "auto").strip().lower()
+    if mode == "manual":
+        return manual
+    if manual:
+        return manual
+    return pick_auto_thermometer(df)
+
+
+def thermometer_source_note(code: str) -> str:
+    manual = os.environ.get("THERMOMETER", "").strip()
+    mode = os.environ.get("THERMOMETER_MODE", "auto").strip().lower()
+    if mode == "manual" or (manual and manual == code):
+        return f"体温计：**手动 THERMOMETER**（`{code}`）"
+    if not code:
+        return "体温计：涨停池缺失，未指定"
+    return f"体温计：**主线空间龙自动生成**（`{code}`）"
+
+
 def pick_auto_watch_codes(
     df: pd.DataFrame,
     thermometer: str,

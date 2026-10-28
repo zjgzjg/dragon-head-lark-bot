@@ -16,7 +16,7 @@ from src.watchlist import parse_manual_watchlist
 def main() -> int:
     date = os.environ.get("TRADE_DATE") or latest_trade_date()
     watch = parse_manual_watchlist()
-    thermometer = os.environ.get("THERMOMETER", "603278").strip()
+    thermometer = os.environ.get("THERMOMETER", "").strip()
 
     from src.trade_calendar import weekday_cn
 

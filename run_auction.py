@@ -14,7 +14,7 @@ from src.watchlist import parse_manual_watchlist
 
 def main() -> int:
     watch = parse_manual_watchlist()
-    thermometer = os.environ.get("THERMOMETER", "603278").strip()
+    thermometer = os.environ.get("THERMOMETER", "").strip()
     title = "竞价快报"
     try:
         body = build_auction_report(watch, thermometer)

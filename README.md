@@ -11,7 +11,9 @@
 
 **收盘推送模板**（飞书 Markdown）：环境→名单前提表 + **次日观察名单表**（含硬条件备注）+ 触发止损 + 执行顺序 + 一句话。
 
-**观察名单默认每天变**：`WATCHLIST_MODE=auto` 时由 **当日涨停池**（连板≥2、硬条件、主线 `MAINLINE_KEYWORD`）自动生成，**不必**每天改 GitHub Variables。仅当你要强行指定时用 `manual` / `merge` + `WATCHLIST`。
+**观察名单默认每天变**：`WATCHLIST_MODE=auto` 时由 **当日涨停池**（连板≥2、硬条件、主线 `MAINLINE_KEYWORD`）自动生成 4 只，**不必**每天改 GitHub Variables。仅当你要强行指定时用 `manual` / `merge` + `WATCHLIST`。
+
+**体温计也每天变**：默认在 `MAINLINE_KEYWORD` 主线里取 **空间龙**（板最高 → 首封更早 → 封单更软），单独占观察表第 5 格、角色「只当体温计」；只有某天要钉死一只时才填 Variable `THERMOMETER`。
 
 ## 1. 飞书群机器人（推荐，与 DSA 相同）
 
@@ -24,7 +26,7 @@ FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx
 FEISHU_WEBHOOK_SECRET=   # 可选
 WATCHLIST_MODE=auto
 MAINLINE_KEYWORD=机器人
-THERMOMETER=603278
+# THERMOMETER=   # 可选，不填则每日自动选主线空间龙
 # WATCHLIST=   # 仅 merge/manual 时需要
 ```
 
@@ -42,7 +44,7 @@ python run_auction.py
 
 1. 把本目录推到 **你的** GitHub 仓库（可 fork 后只保留本 bot 目录，或单独建 repo）
 2. `Settings` → `Secrets`：`FEISHU_WEBHOOK_URL`、（可选）`FEISHU_WEBHOOK_SECRET`、`OPENAI_API_KEY`
-3. `Settings` → `Variables`：`WATCHLIST`、`THERMOMETER`（可选）
+3. `Settings` → `Variables`：`WATCHLIST_MODE`、`MAINLINE_KEYWORD`；（可选）`WATCHLIST`、`THERMOMETER` 钉住某天
 4. 启用 Actions，手动 **Run workflow** 测 `close` / `auction`
 
 Cron 说明（UTC）：
@@ -76,7 +78,7 @@ DRAGON=/Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
 |------|-----|--------|
 | 定时 | Actions `00-daily-analysis.yml` 18:00 | 9:25 + 15:35 双任务 |
 | 飞书 | `FEISHU_WEBHOOK_URL` | 相同 |
-| 内容 | 自选股 AI 决策仪表盘 | **龙头战法** 涨停池 + 观察名单 + 大业体温计 |
+| 内容 | 自选股 AI 决策仪表盘 | **龙头战法** 涨停池 + 观察名单 + 自动体温计 |
 | LLM | 必选其一 API Key | **可选** `OPENAI_*` 润色 |
 
 若要 **完全用 DSA 跑**：Fork DSA，在 `STOCK_LIST` 填观察代码，另加一条 workflow 在 9:25 跑自定义脚本；或把本仓库 `src/` 拷入 DSA 作为 `scripts/dragon_head/` 调用。

@@ -9,7 +9,7 @@ import pandas as pd
 
 from src.lianban_net import fetch_day_summary, format_lianban_section, prior_trade_date_yyyymmdd
 from src.market_data import fetch_open_snapshot, fetch_zt_pool
-from src.watchlist import resolve_watch_codes, watchlist_source_note
+from src.watchlist import resolve_thermometer, resolve_watch_codes, thermometer_source_note, watchlist_source_note
 
 
 def _auction_verdict(pct_open: float) -> str:
@@ -48,6 +48,7 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
 
     pool_for_list = zt if zt is not None else pd.DataFrame()
     pool_for_list.attrs["date"] = prev
+    thermometer = (thermometer or "").strip() or resolve_thermometer(pool_for_list)
     active_watch = resolve_watch_codes(pool_for_list, thermometer, watch_codes)
 
     lines = [
@@ -63,13 +64,23 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         lines.append("")
 
     lines += ["### 体温计"]
-    th = fetch_open_snapshot(thermometer, now)
-    if th:
-        lines.append(_fmt_snap(thermometer, th))
+    if thermometer:
+        th = fetch_open_snapshot(thermometer, now)
+        if th:
+            lines.append(_fmt_snap(thermometer, th))
+        else:
+            lines.append(f"- `{thermometer}` 行情获取失败")
     else:
-        lines.append(f"- `{thermometer}` 行情获取失败")
+        lines.append("- 昨收池缺失或未选出主线空间龙，9:25 先看观察名单里板最高的一只")
 
-    lines += ["", f"> {watchlist_source_note()}（基于 **{prev[:4]}-{prev[4:6]}-{prev[6:8]}** 收盘池）", "", "### 观察名单", ""]
+    lines += [
+        "",
+        f"> {watchlist_source_note()}（基于 **{prev[:4]}-{prev[4:6]}-{prev[6:8]}** 收盘池）",
+        f"> {thermometer_source_note(thermometer)}",
+        "",
+        "### 观察名单",
+        "",
+    ]
     scan = list(active_watch)
     if thermometer and thermometer not in scan:
         scan.append(thermometer)
