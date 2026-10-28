@@ -121,7 +121,13 @@ def _env_meaning(key: str, prev_v: float, cur_v: float) -> str:
             return "高度被切断"
         if cur_v > prev_v:
             return "高度抬升"
-        return "持平"
+        return "高度持平"
+    if key == "mainline":
+        if cur_v < prev_v * 0.85:
+            return "主线收缩"
+        if cur_v > prev_v * 1.15:
+            return "主线扩散"
+        return "主线震荡"
     if key == "temp":
         if cur_v < prev_v - 10:
             return "情绪下台阶"
@@ -414,33 +420,98 @@ def build_watch_table_rows(
     return rows
 
 
+def _emo_line(lb: Optional[LianbanSummary], df: pd.DataFrame) -> str:
+    zt = lb.zt if lb else (len(df) if _has_zt_pool(df) else "—")
+    dt = lb.dt if lb else "—"
+    seal = f"{lb.seal_rate:.0f}%" if lb else "—"
+    temp = f"{lb.temp:.0f}°" if lb and lb.temp is not None else "—"
+    phase = lb.phase.replace("期", "") if lb else "—"
+    if lb and lb.provisional:
+        return f"**{phase}** ~**{temp}**（{zt} 涨停、炸板 **{lb.zhaban}**，整理中）"
+    return f"**{phase}** ~**{temp}**（{zt} 涨停、{dt} 跌停、封板率 ~{seal}）"
+
+
+def _metric_temp(lb: Optional[LianbanSummary]) -> Optional[float]:
+    if lb and lb.temp is not None:
+        return float(lb.temp)
+    return None
+
+
+def _metric_zt(lb: Optional[LianbanSummary], df: pd.DataFrame) -> Optional[float]:
+    if lb:
+        return float(lb.zt)
+    if _has_zt_pool(df):
+        return float(len(df))
+    return None
+
+
+def _metric_mainline_cnt(df: pd.DataFrame) -> Optional[int]:
+    if not _has_zt_pool(df):
+        return None
+    return int(len(mainline_pool(df)))
+
+
+def _metric_max_height(lb: Optional[LianbanSummary], df: pd.DataFrame) -> Optional[float]:
+    if lb:
+        return float(lb.max_board)
+    if _has_zt_pool(df):
+        return float(df["连板数"].max())
+    return None
+
+
+def _delta_note(key: str, prev_v: Optional[float], cur_v: Optional[float]) -> str:
+    if prev_v is None or cur_v is None:
+        return "—"
+    d = cur_v - prev_v
+    if key == "temp":
+        txt = f"{d:+.0f}°"
+    elif key == "zt":
+        txt = f"涨停 {d:+.0f}"
+    elif key == "mainline":
+        txt = f"主线票 {d:+.0f}"
+    elif key == "height":
+        txt = f"高度 {d:+.0f}板" if d else "高度持平"
+    else:
+        txt = f"{d:+.0f}"
+    meaning = _env_meaning(key, prev_v, cur_v)
+    return f"{meaning}（{txt}）"
+
+
 def _section_env_compact(
     date: str,
     nd: str,
+    prev_d: str,
     lb_cur: Optional[LianbanSummary],
+    lb_prev: Optional[LianbanSummary],
     df: pd.DataFrame,
-    thermometer: str,
+    df_prev: pd.DataFrame,
     therm_name: str,
 ) -> List[str]:
-    zt = lb_cur.zt if lb_cur else (len(df) if _has_zt_pool(df) else "—")
-    dt = lb_cur.dt if lb_cur else "—"
-    seal = f"{lb_cur.seal_rate:.0f}%" if lb_cur else "—"
-    temp = f"{lb_cur.temp:.0f}°" if lb_cur and lb_cur.temp is not None else "—"
-    phase = lb_cur.phase.replace("期", "") if lb_cur else "—"
-    if lb_cur and lb_cur.provisional:
-        emo = f"**{phase}** ~**{temp}**（{zt} 涨停、炸板 **{lb_cur.zhaban}**，整理中）"
-    else:
-        emo = f"**{phase}** ~**{temp}**（{zt} 涨停、{dt} 跌停、封板率 ~{seal}）"
+    emo_cmp_parts: List[str] = []
+    t0, t1 = _metric_temp(lb_prev), _metric_temp(lb_cur)
+    if t0 is not None and t1 is not None:
+        emo_cmp_parts.append(_delta_note("temp", t0, t1))
+    z0, z1 = _metric_zt(lb_prev, df_prev), _metric_zt(lb_cur, df)
+    if z0 is not None and z1 is not None:
+        emo_cmp_parts.append(_delta_note("zt", z0, z1))
+    emo_cmp = "；".join(emo_cmp_parts) if emo_cmp_parts else "—"
+
+    m0, m1 = _metric_mainline_cnt(df_prev), _metric_mainline_cnt(df)
+    main_cmp = _delta_note("mainline", float(m0) if m0 is not None else None, float(m1) if m1 is not None else None)
+
+    h0, h1 = _metric_max_height(lb_prev, df_prev), _metric_max_height(lb_cur, df)
+    height_cmp = _delta_note("height", h0, h1)
+
     return [
         "",
         f"## 一、{_md_short(date)} 收盘环境 → {_md_short(nd)} 名单前提",
         "",
-        "| 环境 | 数据 |",
-        "| --- | --- |",
-        f"| **情绪** | {emo} |",
-        f"| **主线** | {_mainline_narrative(df, lb_cur)} |",
-        f"| **高度** | {_height_narrative(df, lb_cur)} |",
-        f"| **仓位** | {_position_narrative(lb_cur, therm_name)} |",
+        f"| 环境 | {_md_short(date)} 今日 | {_md_short(prev_d)} 昨日 | 对比 |",
+        "| --- | --- | --- | --- |",
+        f"| **情绪** | {_emo_line(lb_cur, df)} | {_emo_line(lb_prev, df_prev)} | {emo_cmp} |",
+        f"| **主线** | {_mainline_narrative(df, lb_cur)} | {_mainline_narrative(df_prev, lb_prev)} | {main_cmp} |",
+        f"| **高度** | {_height_narrative(df, lb_cur)} | {_height_narrative(df_prev, lb_prev)} | {height_cmp} |",
+        f"| **仓位** | {_position_narrative(lb_cur, therm_name)} | {_position_narrative(lb_prev, therm_name)} | — |",
     ]
 
 
@@ -557,6 +628,7 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
 
     if not lb_cur:
         lb_cur = fetch_day_summary(report_date)
+    lb_prev = fetch_day_summary(prev_d)
 
     header = [
         f"# {fmt_date(report_date)}（{weekday_cn(report_date)}）收盘复盘",
@@ -593,7 +665,9 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     )
 
     parts = header
-    parts += _section_env_compact(report_date, nd, lb_cur, df, thermometer, therm_name)
+    parts += _section_env_compact(
+        report_date, nd, prev_d, lb_cur, lb_prev, df, df_prev, therm_name
+    )
     if lb_cur and lb_cur.one_liner:
         parts.append(f"\n> 连板网：{lb_cur.one_liner}")
     parts.append(f"\n> {watchlist_source_note()}")
