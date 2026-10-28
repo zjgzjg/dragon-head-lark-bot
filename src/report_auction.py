@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List
 
 from src.lianban_net import fetch_day_summary, format_lianban_section, prior_trade_date_yyyymmdd
-from src.market_data import fetch_open_snapshot, latest_trade_date, fetch_zt_pool
+from src.market_data import fetch_open_snapshot, fetch_zt_pool
 
 
 def _auction_verdict(pct_open: float) -> str:
@@ -32,11 +32,11 @@ def _fmt_snap(code: str, snap: dict) -> str:
 
 def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     now = datetime.now()
-    date = latest_trade_date(now)
+    prev = prior_trade_date_yyyymmdd(now)
     zt_codes: set = set()
     try:
-        zt = fetch_zt_pool(date)
-        zt.attrs["date"] = date
+        zt = fetch_zt_pool(prev)
+        zt.attrs["date"] = prev
         zt_codes = set(zt["代码"].astype(str))
     except Exception:
         zt = None
@@ -49,7 +49,6 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     if zt is None:
         lines += ["> ⚠️ 涨停池拉取失败（数据源限流），仅展示观察名单竞价。", ""]
 
-    prev = prior_trade_date_yyyymmdd(now)
     lb = fetch_day_summary(prev)
     if lb:
         lines += format_lianban_section(lb, title="昨收·连板网环境锚")
