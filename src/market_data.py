@@ -60,25 +60,19 @@ def _trade_date_str(d: datetime) -> str:
 
 
 def latest_trade_date(ref: Optional[datetime] = None) -> str:
-    ref = ref or datetime.now()
-    try:
-        from src.lianban_net import fetch_latest_summary
+    """从北京时间当前交易日起，向前找最近有东财涨停池的日期。收盘任务用 default_close_trade_date。"""
+    from src.trade_calendar import beijing_session_yyyymmdd, now_beijing, prev_trade_date
 
-        lb = fetch_latest_summary()
-        if lb and lb.date_iso:
-            return lb.date_iso.replace("-", "")
-    except Exception:
-        pass
-    for i in range(0, 10):
-        d = ref - timedelta(days=i)
-        s = _trade_date_str(d)
+    d = beijing_session_yyyymmdd(ref or now_beijing())
+    for _ in range(10):
         try:
-            df = _retry_call(ak.stock_zt_pool_em, date=s)
+            df = _retry_call(ak.stock_zt_pool_em, date=d)
             if df is not None and len(df) > 0:
-                return s
+                return d
         except Exception:
-            continue
-    return _last_weekday_yyyymmdd(ref)
+            pass
+        d = prev_trade_date(d)
+    return beijing_session_yyyymmdd(ref or now_beijing())
 
 
 def _last_weekday_yyyymmdd(ref: datetime) -> str:

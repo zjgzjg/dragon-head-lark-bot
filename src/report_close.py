@@ -502,30 +502,36 @@ def _one_liner(watch_rows: List[dict], next_date: str, thermometer: str) -> str:
 
 
 def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> str:
-    orig_date = date
-    lb_cur = fetch_day_summary(date)
+    report_date = date.strip()
+    lb_cur = fetch_day_summary(report_date)
+    lb_stale_note = ""
     if not lb_cur:
         lb_latest = fetch_latest_summary()
         if lb_latest:
-            date = lb_latest.date_iso.replace("-", "")
             lb_cur = lb_latest
+            latest_d = lb_latest.date_iso.replace("-", "")
+            if latest_d != report_date:
+                lb_stale_note = (
+                    f"连板网 **{fmt_date(report_date)}** 尚未归档，"
+                    f"情绪/主线暂引用最近定版 **{fmt_date(latest_d)}**（涨停池仍按 **{fmt_date(report_date)}**）。"
+                )
 
-    prev_d = prev_trade_date(date)
-    nd = next_trade_date(date)
+    prev_d = prev_trade_date(report_date)
+    nd = next_trade_date(report_date)
 
     df = pd.DataFrame()
-    df.attrs["date"] = date
-    sm_cur = summarize_zt(df, date)
+    df.attrs["date"] = report_date
+    sm_cur = summarize_zt(df, report_date)
     sm_prev = summarize_zt(df, prev_d)
     pool_ok = False
     try:
-        df = fetch_zt_pool(date)
-        df.attrs["date"] = date
-        sm_cur = summarize_zt(df, date)
+        df = fetch_zt_pool(report_date)
+        df.attrs["date"] = report_date
+        sm_cur = summarize_zt(df, report_date)
         pool_ok = _has_zt_pool(df)
     except Exception:
         df = pd.DataFrame()
-        df.attrs["date"] = date
+        df.attrs["date"] = report_date
     df_prev = pd.DataFrame()
     try:
         df_prev = fetch_zt_pool(prev_d)
@@ -535,18 +541,16 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
         sm_prev = summarize_zt(df_prev, prev_d)
 
     if not lb_cur:
-        lb_cur = fetch_day_summary(date)
+        lb_cur = fetch_day_summary(report_date)
 
     header = [
-        f"# {fmt_date(date)}（{weekday_cn(date)}）收盘复盘",
+        f"# {fmt_date(report_date)}（{weekday_cn(report_date)}）收盘复盘",
         "",
-        f"**定版口径：** 东财涨停池 + [连板网](https://lianban.net/) {fmt_date(date)} 公开复盘；"
+        f"**定版口径：** 东财涨停池 + [连板网](https://lianban.net/) {fmt_date(report_date)} 公开复盘；"
         "个股价以收盘池/日线为准。",
     ]
-    if orig_date != date:
-        header.append(
-            f"> 📅 自然日 `{fmt_date(orig_date)}` 尚无连板网定版，已改用最近归档 **{fmt_date(date)}**。"
-        )
+    if lb_stale_note:
+        header.append(f"> 📅 {lb_stale_note}")
     if not pool_ok:
         header.append(
             "> ⚠️ **东财涨停池未拉取**（云端限流时常见）：环境/主线以 **连板网** 为准；"
@@ -559,14 +563,14 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     ]
 
     df_for_watch = df if pool_ok else df
-    df_for_watch.attrs["date"] = date
+    df_for_watch.attrs["date"] = report_date
     thermometer = (thermometer or "").strip() or resolve_thermometer(df_for_watch)
     resolved = resolve_watch_codes(df_for_watch, thermometer, watch_codes)
-    watch_rows = build_watch_table_rows(resolved, thermometer, df_for_watch, date)
+    watch_rows = build_watch_table_rows(resolved, thermometer, df_for_watch, report_date)
     therm_name = next((r["name"] for r in watch_rows if r["code"] == thermometer), thermometer)
 
     save_next_day_snapshot(
-        list_date=date,
+        list_date=report_date,
         session_date=nd,
         thermometer=thermometer,
         watch_codes=resolved,
@@ -574,12 +578,12 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     )
 
     parts = header
-    parts += _section_env_compact(date, nd, lb_cur, df, thermometer, therm_name)
+    parts += _section_env_compact(report_date, nd, lb_cur, df, thermometer, therm_name)
     if lb_cur and lb_cur.one_liner:
         parts.append(f"\n> 连板网：{lb_cur.one_liner}")
     parts.append(f"\n> {watchlist_source_note()}")
     parts.append(f"> {thermometer_source_note(thermometer)}")
-    parts += _section_watch_table(date, nd, watch_rows)
+    parts += _section_watch_table(report_date, nd, watch_rows)
     parts += _section_triggers(nd, watch_rows, thermometer)
     parts += _section_exec(nd)
     parts += ["", "## 五、一句话", "", _one_liner(watch_rows, nd, thermometer), "", "> 方法论复盘，不构成投资建议。"]

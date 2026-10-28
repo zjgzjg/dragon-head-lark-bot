@@ -52,3 +52,8 @@ def prior_trade_date_yyyymmdd(ref: Optional[datetime] = None) -> str:
     """竞价/开盘语境：上一交易日（按 **北京时间** 日历）。"""
     session = beijing_session_yyyymmdd(ref)
     return prev_trade_date(session)
+
+
+def default_close_trade_date(ref: Optional[datetime] = None) -> str:
+    """收盘复盘默认定版日 = 北京时间当前 A 股交易日（不跟连板网 RSS 最新归档走）。"""
+    return beijing_session_yyyymmdd(ref)

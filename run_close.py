@@ -8,13 +8,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.lark_webhook import send_feishu_post
-from src.market_data import latest_trade_date
+from src.trade_calendar import default_close_trade_date
 from src.report_close import build_close_report, maybe_llm_polish
 from src.watchlist import parse_manual_watchlist
 
 
 def main() -> int:
-    date = os.environ.get("TRADE_DATE") or latest_trade_date()
+    date = os.environ.get("TRADE_DATE") or default_close_trade_date()
     watch = parse_manual_watchlist()
     thermometer = os.environ.get("THERMOMETER", "").strip()
 
