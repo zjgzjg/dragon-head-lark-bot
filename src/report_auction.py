@@ -135,7 +135,7 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         "",
         snapshot_note,
         f"> {watchlist_source_note()}",
-        f"> {thermometer_source_note(thermometer)}",
+        f"> {thermometer_source_note(thermometer, pool_names.get(_norm_code(thermometer), ''))}",
         "",
         "### 观察名单",
         "",

@@ -13,6 +13,7 @@ from src.lianban_net import LianbanSummary, fetch_day_summary, fetch_latest_summ
 from src.market_data import fetch_code_quote, fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
 from src.watchlist import (
+    THERMOMETER_ROLE_DEFAULT,
     mainline_pool,
     resolve_thermometer,
     resolve_watch_codes,
@@ -241,7 +242,7 @@ def _build_next_watchlist(
             {
                 "code": thermometer,
                 "name": name,
-                "role": roles.get(thermometer, "仅体温计，默认不买"),
+                "role": roles.get(thermometer, THERMOMETER_ROLE_DEFAULT),
                 "close": close,
                 "limit": _limit_up_price(thermometer, close) if close else 0,
                 "height": height,
@@ -311,10 +312,10 @@ def _position_narrative(lb: Optional[LianbanSummary], therm_name: str) -> str:
     if not lb:
         return "≤半仓；只做硬筹码"
     if "冰点" in lb.phase:
-        return f"**≤半仓 / 偏空**；**{therm_name}** 只当体温计"
+        return f"**≤半仓 / 偏空**；**{therm_name}** 定次日竞价权限"
     if "退潮" in lb.phase:
-        return f"**≤半仓**；**{therm_name}** 只当体温计"
-    return f"控制仓位；**{therm_name}** 只当体温计"
+        return f"**≤半仓**；**{therm_name}** 定次日竞价权限"
+    return f"控制仓位；**{therm_name}** 定次日竞价权限"
 
 
 def _hard_note(code: str, df: pd.DataFrame, best_seal: float) -> str:
@@ -333,7 +334,7 @@ def _hard_note(code: str, df: pd.DataFrame, best_seal: float) -> str:
 
 def _auto_role(code: str, df: pd.DataFrame, roles: Dict[str, str], thermometer: str) -> str:
     if code == thermometer:
-        return roles.get(code, "只当体温计，默认不买")
+        return roles.get(code, THERMOMETER_ROLE_DEFAULT)
     if roles.get(code):
         return roles[code]
     r = _pool_row(df, code)
@@ -459,7 +460,7 @@ def _section_triggers(nd: str, rows: List[dict], thermometer: str) -> List[str]:
         "| 代码 | 名称 | 昨收 | 涨停价 | 竞价/买点/止损 |",
         "| --- | --- | --- | --- | --- |",
     ]
-    rule = "低开>2%删；9:35–9:45承接；止损昨收或开×0.97"
+    rule = "低开>2%删；9:35–9:45承接；止损：昨收或破开盘价-3%"
     for r in rows:
         if r["code"] == thermometer:
             lines.append(
@@ -558,7 +559,7 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
         )
     header += [
         "",
-        "**目录**：① 环境→名单前提 ② 观察名单 ③ 触发止损 ④ 执行顺序 ⑤ 一句话",
+        "**目录**：**① 环境→名单前提** · **② 观察名单** · **③ 触发止损** · **④ 执行顺序** · **⑤ 一句话**",
         "",
     ]
 
@@ -582,7 +583,7 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     if lb_cur and lb_cur.one_liner:
         parts.append(f"\n> 连板网：{lb_cur.one_liner}")
     parts.append(f"\n> {watchlist_source_note()}")
-    parts.append(f"> {thermometer_source_note(thermometer)}")
+    parts.append(f"> {thermometer_source_note(thermometer, therm_name)}")
     parts += _section_watch_table(report_date, nd, watch_rows)
     parts += _section_triggers(nd, watch_rows, thermometer)
     parts += _section_exec(nd)

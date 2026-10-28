@@ -9,6 +9,11 @@ import pandas as pd
 
 _CONSUMER_HINT = r"消费|零售|食品|百货|商业|餐饮|酿酒|旅游|酒店|乳业|预制菜|电商"
 
+# 与 _hard_pass 一致，用于推送文案
+HARD_CONDITIONS_TEXT = "连板≥2 · 封单比≥3% · 炸板<3 · 换手≤20% · 14:00 前首封"
+
+THERMOMETER_ROLE_DEFAULT = "体温计·定权限（不接力）"
+
 
 def parse_manual_watchlist() -> List[str]:
     raw = os.environ.get("WATCHLIST", "").strip()
@@ -127,16 +132,25 @@ def resolve_thermometer(df: pd.DataFrame) -> str:
     return pick_auto_thermometer(df)
 
 
-def thermometer_source_note(code: str) -> str:
+def _therm_label(code: str, name: str = "") -> str:
+    c = (code or "").strip()
+    n = (name or "").strip()
+    if n and c:
+        return f"**{n}**（`{c}`）"
+    return f"**{n}**" if n else (f"`{c}`" if c else "—")
+
+
+def thermometer_source_note(code: str, name: str = "") -> str:
     manual = os.environ.get("THERMOMETER", "").strip()
     mode = os.environ.get("THERMOMETER_MODE", "auto").strip().lower()
+    lab = _therm_label(code, name)
     if mode == "manual" or (manual and manual == code):
-        return f"体温计：**手动 THERMOMETER**（`{code}`）"
+        return f"体温计：{lab}（手动指定）"
     if not code:
         return "体温计：涨停池缺失，未指定"
     kw = _mainline_keyword()
-    hint = f"主线「{kw}」" if kw else "主线"
-    return f"体温计：**{hint}空间龙自动生成**（`{code}`，不含消费支线全市场高度）"
+    hint = f"主线「{kw}」空间龙" if kw else "主线空间龙"
+    return f"体温计：{lab}（{hint}·自动）"
 
 
 def pick_auto_watch_codes(
@@ -215,8 +229,11 @@ def resolve_watch_codes(
 
 def watchlist_source_note() -> str:
     mode = os.environ.get("WATCHLIST_MODE", "auto").strip().lower()
+    kw = _mainline_keyword()
+    mainline = f" + 主线「{kw}」排序" if kw else ""
+    hard = f"硬条件：{HARD_CONDITIONS_TEXT}"
     if mode == "manual":
         return "观察名单来源：**手动 WATCHLIST**"
     if mode == "merge":
-        return "观察名单来源：**规则生成 + WATCHLIST 补充**（`WATCHLIST_MODE=merge`）"
-    return "观察名单来源：**当日涨停池硬条件 + 主线排序自动生成**（`WATCHLIST_MODE=auto`）"
+        return f"观察名单来源：**{hard}{mainline}** + **WATCHLIST 补充**（`merge`）"
+    return f"观察名单来源：**当日涨停池自动生成**（{hard}{mainline}，`auto`）"
