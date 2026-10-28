@@ -2,11 +2,10 @@
 """竞价结束：市场 + 观察名单竞价裁决。"""
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import List
 
-from src.market_data import fetch_open_snapshot, latest_trade_date, fetch_zt_pool, fetch_watchlist_rows
+from src.market_data import fetch_open_snapshot, latest_trade_date, fetch_zt_pool
 
 
 def _auction_verdict(pct_open: float) -> str:
@@ -21,23 +20,38 @@ def _auction_verdict(pct_open: float) -> str:
     return "🔴 高开>7% 透支"
 
 
+def _fmt_snap(code: str, snap: dict) -> str:
+    if snap.get("pct_open") is None:
+        return f"- **{code}** 开{snap['open']:.2f} 现{snap['last']:.2f}（昨收缺失，暂不算%）"
+    return (
+        f"- **{code}** 开 {snap['open']:.2f} ({snap['pct_open']:+.2f}%) "
+        f"现 {snap['last']:.2f} ({snap['pct_last']:+.2f}%) → {_auction_verdict(snap['pct_open'])}"
+    )
+
+
 def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     now = datetime.now()
     date = latest_trade_date(now)
-    zt = fetch_zt_pool(date)
-    zt.attrs["date"] = date
+    zt_codes: set = set()
+    try:
+        zt = fetch_zt_pool(date)
+        zt.attrs["date"] = date
+        zt_codes = set(zt["代码"].astype(str))
+    except Exception:
+        zt = None
+        zt_codes = set()
 
     lines = [
         f"## ⏰ {now.strftime('%Y-%m-%d %H:%M')} 竞价快报（龙头战法）",
         "",
-        "### 体温计",
     ]
+    if zt is None:
+        lines += ["> ⚠️ 涨停池拉取失败（数据源限流），仅展示观察名单竞价。", ""]
+
+    lines += ["### 体温计"]
     th = fetch_open_snapshot(thermometer, now)
     if th:
-        lines.append(
-            f"- **{thermometer}** 开 {th['open']:.2f} ({th['pct_open']:+.2f}%) "
-            f"现 {th['last']:.2f} ({th['pct_last']:+.2f}%) → {_auction_verdict(th['pct_open'])}"
-        )
+        lines.append(_fmt_snap(thermometer, th))
     else:
         lines.append(f"- `{thermometer}` 行情获取失败")
 
@@ -47,14 +61,20 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         if not code or code == thermometer:
             continue
         snap = fetch_open_snapshot(code, now)
-        in_pool = code in set(zt["代码"].astype(str))
+        in_pool = code in zt_codes
         if not snap:
             lines.append(f"- `{code}` 无数据")
             continue
-        lines.append(
-            f"- **{code}** 开{snap['pct_open']:+.2f}% 现{snap['pct_last']:+.2f}% "
-            f"{'在涨停池' if in_pool else '不在池'} → {_auction_verdict(snap['pct_open'])}"
-        )
+        pool = "在涨停池" if in_pool else "不在池"
+        if snap.get("pct_open") is None:
+            lines.append(
+                f"- **{code}** 开{snap['open']:.2f} 现{snap['last']:.2f} {pool}（昨收缺失）"
+            )
+        else:
+            lines.append(
+                f"- **{code}** 开{snap['pct_open']:+.2f}% 现{snap['pct_last']:+.2f}% "
+                f"{pool} → {_auction_verdict(snap['pct_open'])}"
+            )
 
     lines += [
         "",
