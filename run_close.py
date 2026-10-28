@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.lark_webhook import send_feishu_post
+from src.report_image import render_markdown_long_image
 from src.trade_calendar import default_close_trade_date
 from src.report_close import build_close_report, maybe_llm_polish
 from src.watchlist import parse_manual_watchlist
@@ -30,7 +31,8 @@ def main() -> int:
             f"WATCHLIST: `{', '.join(watch)}`"
         )
     try:
-        send_feishu_post(body, title=title)
+        img = render_markdown_long_image(body, title=title)
+        send_feishu_post(body, title=title, image_path=img)
     except Exception as exc:
         print(f"Feishu send failed: {exc}", file=sys.stderr)
         return 1

@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.lark_webhook import send_feishu_post
+from src.report_image import render_markdown_long_image
 from src.report_auction import build_auction_report
 from src.watchlist import parse_manual_watchlist
 
@@ -28,7 +29,8 @@ def main() -> int:
             f"观察名单：`{', '.join(watch)}` 体温计 `{thermometer}`"
         )
     try:
-        send_feishu_post(body, title=title)
+        img = render_markdown_long_image(body, title=title)
+        send_feishu_post(body, title=title, image_path=img)
     except Exception as exc:
         print(f"Feishu send failed: {exc}", file=sys.stderr)
         return 1

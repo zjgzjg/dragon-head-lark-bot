@@ -24,7 +24,7 @@ concurrency:
 jobs:
   push:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +35,9 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: 安装依赖
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
 
       - name: 计算竞价交易日（北京）
         if: |
@@ -67,6 +69,8 @@ jobs:
           TZ: Asia/Shanghai
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
           WATCHLIST: ${{ vars.WATCHLIST }}
           MAINLINE_KEYWORD: ${{ vars.MAINLINE_KEYWORD || '机器人' }}
@@ -110,6 +114,8 @@ jobs:
           TZ: Asia/Shanghai
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
           WATCHLIST: ${{ vars.WATCHLIST }}
           MAINLINE_KEYWORD: ${{ vars.MAINLINE_KEYWORD || '机器人' }}
