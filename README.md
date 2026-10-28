@@ -13,7 +13,7 @@
 
 **观察名单默认每天变**：`WATCHLIST_MODE=auto` 时由 **当日涨停池**（连板≥2、硬条件、主线 `MAINLINE_KEYWORD`）自动生成 4 只，**不必**每天改 GitHub Variables。仅当你要强行指定时用 `manual` / `merge` + `WATCHLIST`。
 
-**体温计也每天变**：默认在 `MAINLINE_KEYWORD` 主线里取 **空间龙**（板最高 → 首封更早 → 封单更软），单独占观察表第 5 格、角色「只当体温计」；只有某天要钉死一只时才填 Variable `THERMOMETER`。
+**体温计也每天变**：在 `MAINLINE_KEYWORD` 对应票里取 **空间龙**（会在行业/涨停原因/概念里搜关键字；搜不到时 **去掉消费支线**，避免把上海九百这类全市场 5 板误当机器人体温计）。只有某天要钉死一只时才填 `THERMOMETER`。
 
 ## 1. 飞书群机器人（推荐，与 DSA 相同）
 
