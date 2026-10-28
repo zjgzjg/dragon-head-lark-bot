@@ -34,7 +34,16 @@ def main() -> int:
     except Exception as exc:
         print(f"Feishu send failed: {exc}", file=sys.stderr)
         return 1
-    print("OK close report sent")
+    from src.watchlist_snapshot import load_snapshot_for_session, snapshot_path
+    from src.trade_calendar import next_trade_date
+
+    nd = next_trade_date(date)
+    snap = load_snapshot_for_session(nd)
+    if snap:
+        print(f"OK close report sent; snapshot session={nd} path={snapshot_path()}")
+    else:
+        print(f"WARN close sent but snapshot missing for session {nd}", file=sys.stderr)
+        return 1
     return 0
 
 
