@@ -19,6 +19,7 @@ from src.watchlist import (
     thermometer_source_note,
     watchlist_source_note,
 )
+from src.watchlist_snapshot import save_next_day_snapshot
 
 
 def _has_zt_pool(df: pd.DataFrame) -> bool:
@@ -563,6 +564,14 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     resolved = resolve_watch_codes(df_for_watch, thermometer, watch_codes)
     watch_rows = build_watch_table_rows(resolved, thermometer, df_for_watch, date)
     therm_name = next((r["name"] for r in watch_rows if r["code"] == thermometer), thermometer)
+
+    save_next_day_snapshot(
+        list_date=date,
+        session_date=nd,
+        thermometer=thermometer,
+        watch_codes=resolved,
+        names={str(r["code"]): str(r["name"]) for r in watch_rows},
+    )
 
     parts = header
     parts += _section_env_compact(date, nd, lb_cur, df, thermometer, therm_name)

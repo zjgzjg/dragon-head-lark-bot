@@ -170,11 +170,6 @@ def format_lianban_section(sm: LianbanSummary, *, title: str = "连板网") -> L
 
 
 def prior_trade_date_yyyymmdd(ref: Optional[datetime] = None) -> str:
-    """竞价日取上一交易日：简单跳过周末（节假日由连板网页/RSS 兜底）。"""
-    ref = ref or datetime.now()
-    d = ref
-    for _ in range(10):
-        d = d - timedelta(days=1)
-        if d.weekday() < 5:
-            return d.strftime("%Y%m%d")
-    return (ref - timedelta(days=1)).strftime("%Y%m%d")
+    from src.trade_calendar import prior_trade_date_yyyymmdd as _bj_prior
+
+    return _bj_prior(ref)

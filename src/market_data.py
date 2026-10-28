@@ -285,7 +285,9 @@ def _fetch_tencent_spot(code: str) -> Optional[Dict]:
             return None
         if open_p <= 0:
             open_p = last
+        name = parts[1].strip() if len(parts) > 1 and parts[1] else None
         return {
+            "name": name,
             "open": open_p,
             "last": last,
             "prev": prev,
@@ -294,6 +296,15 @@ def _fetch_tencent_spot(code: str) -> Optional[Dict]:
         }
     except Exception:
         return None
+
+
+def _attach_snapshot_name(code: str, snap: Dict) -> Dict:
+    if snap.get("name"):
+        return snap
+    parts = _sina_hq_parts(code)
+    if parts and parts[0]:
+        snap["name"] = parts[0]
+    return snap
 
 
 def _snapshot_from_sina_minute(code: str, trade_date: datetime) -> Optional[Dict]:
@@ -326,7 +337,7 @@ def fetch_open_snapshot(code: str, trade_date: datetime) -> Optional[Dict]:
     for fn in (_fetch_sina_spot, _fetch_tencent_spot):
         snap = fn(code)
         if snap:
-            return snap
+            return _attach_snapshot_name(code, snap)
     if not _is_ci():
         try:
             b = _retry_call(ak.stock_bid_ask_em, symbol=code)

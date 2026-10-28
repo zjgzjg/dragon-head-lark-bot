@@ -15,7 +15,10 @@ from src.watchlist import parse_manual_watchlist
 def main() -> int:
     watch = parse_manual_watchlist()
     thermometer = os.environ.get("THERMOMETER", "").strip()
-    title = "竞价快报"
+    from src.trade_calendar import beijing_session_yyyymmdd, fmt_date, weekday_cn
+
+    session = beijing_session_yyyymmdd()
+    title = f"{fmt_date(session)}（{weekday_cn(session)}）竞价快报"
     try:
         body = build_auction_report(watch, thermometer)
     except Exception as exc:

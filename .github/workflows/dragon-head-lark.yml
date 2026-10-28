@@ -37,11 +37,32 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 计算竞价交易日（北京）
+        if: |
+          github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'auction' ||
+          github.event_name == 'schedule' && github.event.schedule == '25 1 * * 1-5'
+        id: auction_meta
+        run: |
+          SESSION=$(TZ=Asia/Shanghai date +%Y%m%d)
+          echo "session=$SESSION" >> "$GITHUB_OUTPUT"
+
+      - name: 恢复收盘定版名单
+        if: |
+          github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'auction' ||
+          github.event_name == 'schedule' && github.event.schedule == '25 1 * * 1-5'
+        uses: actions/cache/restore@v4
+        with:
+          path: watchlist_snapshot.json
+          key: watchlist-${{ steps.auction_meta.outputs.session }}
+          restore-keys: |
+            watchlist-
+
       - name: 竞价快报
         if: |
           github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'auction' ||
           github.event_name == 'schedule' && github.event.schedule == '25 1 * * 1-5'
         env:
+          TZ: Asia/Shanghai
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
           WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
@@ -53,11 +74,31 @@ jobs:
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
         run: python run_auction.py
 
+      - name: 计算次日竞价交易日（北京）
+        if: |
+          github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'close' ||
+          github.event_name == 'schedule' && github.event.schedule == '35 7 * * 1-5'
+        id: close_meta
+        run: |
+          NEXT=$(python - <<'PY'
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+          d = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+          for _ in range(8):
+              d += timedelta(days=1)
+              if d.weekday() < 5:
+                  print(d.strftime("%Y%m%d"))
+                  break
+          PY
+          )
+          echo "next_session=$NEXT" >> "$GITHUB_OUTPUT"
+
       - name: 收盘复盘
         if: |
           github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'close' ||
           github.event_name == 'schedule' && github.event.schedule == '35 7 * * 1-5'
         env:
+          TZ: Asia/Shanghai
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
           WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
@@ -68,3 +109,12 @@ jobs:
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
         run: python run_close.py
+
+      - name: 缓存次日竞价名单
+        if: |
+          github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'close' ||
+          github.event_name == 'schedule' && github.event.schedule == '35 7 * * 1-5'
+        uses: actions/cache/save@v4
+        with:
+          path: watchlist_snapshot.json
+          key: watchlist-${{ steps.close_meta.outputs.next_session }}
