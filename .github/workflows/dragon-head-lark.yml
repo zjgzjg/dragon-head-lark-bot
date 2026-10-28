@@ -44,7 +44,9 @@ jobs:
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
-          WATCHLIST: ${{ vars.WATCHLIST || '603278,603028,603528,603089,002708,002249' }}
+          WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
+          WATCHLIST: ${{ vars.WATCHLIST }}
+          MAINLINE_KEYWORD: ${{ vars.MAINLINE_KEYWORD || '机器人' }}
           THERMOMETER: ${{ vars.THERMOMETER || '603278' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
@@ -58,7 +60,9 @@ jobs:
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
-          WATCHLIST: ${{ vars.WATCHLIST || '603278,603028,603528,603089,002708,002249' }}
+          WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
+          WATCHLIST: ${{ vars.WATCHLIST }}
+          MAINLINE_KEYWORD: ${{ vars.MAINLINE_KEYWORD || '机器人' }}
           THERMOMETER: ${{ vars.THERMOMETER || '603278' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}

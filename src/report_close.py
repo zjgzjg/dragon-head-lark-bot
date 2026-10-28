@@ -12,6 +12,7 @@ import pandas as pd
 from src.lianban_net import LianbanSummary, fetch_day_summary, fetch_latest_summary
 from src.market_data import fetch_code_quote, fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
+from src.watchlist import resolve_watch_codes, watchlist_source_note
 
 
 def _has_zt_pool(df: pd.DataFrame) -> bool:
@@ -554,13 +555,15 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
 
     df_for_watch = df if pool_ok else df
     df_for_watch.attrs["date"] = date
-    watch_rows = build_watch_table_rows(watch_codes, thermometer, df_for_watch, date)
+    resolved = resolve_watch_codes(df_for_watch, thermometer, watch_codes)
+    watch_rows = build_watch_table_rows(resolved, thermometer, df_for_watch, date)
     therm_name = next((r["name"] for r in watch_rows if r["code"] == thermometer), thermometer)
 
     parts = header
     parts += _section_env_compact(date, nd, lb_cur, df, thermometer, therm_name)
     if lb_cur and lb_cur.one_liner:
         parts.append(f"\n> 连板网：{lb_cur.one_liner}")
+    parts.append(f"\n> {watchlist_source_note()}")
     parts += _section_watch_table(date, nd, watch_rows)
     parts += _section_triggers(nd, watch_rows, thermometer)
     parts += _section_exec(nd)

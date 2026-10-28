@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List
 
+import pandas as pd
+
 from src.lianban_net import fetch_day_summary, format_lianban_section, prior_trade_date_yyyymmdd
 from src.market_data import fetch_open_snapshot, fetch_zt_pool
+from src.watchlist import resolve_watch_codes, watchlist_source_note
 
 
 def _auction_verdict(pct_open: float) -> str:
@@ -33,6 +36,7 @@ def _fmt_snap(code: str, snap: dict) -> str:
 def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     now = datetime.now()
     prev = prior_trade_date_yyyymmdd(now)
+    zt = None
     zt_codes: set = set()
     try:
         zt = fetch_zt_pool(prev)
@@ -41,6 +45,10 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     except Exception:
         zt = None
         zt_codes = set()
+
+    pool_for_list = zt if zt is not None else pd.DataFrame()
+    pool_for_list.attrs["date"] = prev
+    active_watch = resolve_watch_codes(pool_for_list, thermometer, watch_codes)
 
     lines = [
         f"## ⏰ {now.strftime('%Y-%m-%d %H:%M')} 竞价快报（龙头战法）",
@@ -61,10 +69,13 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     else:
         lines.append(f"- `{thermometer}` 行情获取失败")
 
-    lines += ["", "### 观察名单", ""]
-    for code in watch_codes:
+    lines += ["", f"> {watchlist_source_note()}（基于 **{prev[:4]}-{prev[4:6]}-{prev[6:8]}** 收盘池）", "", "### 观察名单", ""]
+    scan = list(active_watch)
+    if thermometer and thermometer not in scan:
+        scan.append(thermometer)
+    for code in scan:
         code = code.strip()
-        if not code or code == thermometer:
+        if not code:
             continue
         snap = fetch_open_snapshot(code, now)
         in_pool = code in zt_codes

@@ -9,10 +9,11 @@ load_dotenv()
 
 from src.lark_webhook import send_feishu_post
 from src.report_auction import build_auction_report
+from src.watchlist import parse_manual_watchlist
 
 
 def main() -> int:
-    watch = [c.strip() for c in os.environ.get("WATCHLIST", "603278,603028,603528").split(",") if c.strip()]
+    watch = parse_manual_watchlist()
     thermometer = os.environ.get("THERMOMETER", "603278").strip()
     title = "竞价快报"
     try:

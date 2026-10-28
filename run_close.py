@@ -10,11 +10,12 @@ load_dotenv()
 from src.lark_webhook import send_feishu_post
 from src.market_data import latest_trade_date
 from src.report_close import build_close_report, maybe_llm_polish
+from src.watchlist import parse_manual_watchlist
 
 
 def main() -> int:
     date = os.environ.get("TRADE_DATE") or latest_trade_date()
-    watch = [c.strip() for c in os.environ.get("WATCHLIST", "603278,603028,603528").split(",") if c.strip()]
+    watch = parse_manual_watchlist()
     thermometer = os.environ.get("THERMOMETER", "603278").strip()
 
     from src.trade_calendar import weekday_cn

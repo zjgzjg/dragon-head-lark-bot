@@ -9,7 +9,9 @@
 
 行情默认走 **akshare（东财/新浪）**；环境摘要另从 **[连板网 lianban.net](https://lianban.net/)** 拉公开复盘（日复盘页 + RSS）：情绪温度、封板率、主线、当日结论。收盘报告对照当日，竞价报告引用 **上一交易日** 作环境锚。
 
-**收盘推送模板**（飞书 Markdown）：目录 + 环境对比表 + 主线 + 与前日 `WATCHLIST` 对照 + 硬条件/否决/次日观察名单表 + 触发止损 + 9:25→10:00 执行顺序 + 一句话。可选 `WATCH_ROLES`、`MAINLINE_KEYWORD` 微调文案。
+**收盘推送模板**（飞书 Markdown）：环境→名单前提表 + **次日观察名单表**（含硬条件备注）+ 触发止损 + 执行顺序 + 一句话。
+
+**观察名单默认每天变**：`WATCHLIST_MODE=auto` 时由 **当日涨停池**（连板≥2、硬条件、主线 `MAINLINE_KEYWORD`）自动生成，**不必**每天改 GitHub Variables。仅当你要强行指定时用 `manual` / `merge` + `WATCHLIST`。
 
 ## 1. 飞书群机器人（推荐，与 DSA 相同）
 
@@ -20,8 +22,10 @@
 ```bash
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxx
 FEISHU_WEBHOOK_SECRET=   # 可选
-WATCHLIST=603278,603028,603528,603089,002708,002249
+WATCHLIST_MODE=auto
+MAINLINE_KEYWORD=机器人
 THERMOMETER=603278
+# WATCHLIST=   # 仅 merge/manual 时需要
 ```
 
 ## 2. 本地试跑
