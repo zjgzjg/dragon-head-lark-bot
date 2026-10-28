@@ -19,7 +19,9 @@ def main() -> int:
 
     body = build_close_report(date, watch, thermometer)
     body = maybe_llm_polish(body)
-    title = f"收盘复盘 {date[4:6]}-{date[6:8]}"
+    from src.trade_calendar import weekday_cn
+
+    title = f"{date[:4]}-{date[4:6]}-{date[6:8]}（{weekday_cn(date)}）收盘复盘"
     send_feishu_post(body, title=title)
     print("OK close report sent")
     return 0
