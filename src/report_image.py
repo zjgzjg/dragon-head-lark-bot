@@ -64,15 +64,32 @@ strong { color: #0f1114; }
 """
 
 
+def _strip_duplicate_title(md_text: str, title: str) -> str:
+    """正文已有 # 标题时，长图不再重复插 h1。"""
+    lines = md_text.splitlines()
+    if not lines:
+        return md_text
+    first = lines[0].strip()
+    if not first.startswith("#"):
+        return md_text
+    head = re.sub(r"^#+\s*", "", first).strip()
+    norm_title = re.sub(r"\s+", "", title.strip())
+    norm_head = re.sub(r"\s+", "", head)
+    if norm_head == norm_title or norm_title in norm_head or norm_head in norm_title:
+        rest = "\n".join(lines[1:]).lstrip("\n")
+        return rest
+    return md_text
+
+
 def _md_to_html(md_text: str, title: str) -> str:
+    md_text = _strip_duplicate_title(md_text, title)
     body = markdown.markdown(
         md_text,
         extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
     )
-    safe_title = re.sub(r"<[^>]+>", "", title)
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">{_FONT_LINKS}<style>{_REPORT_CSS}</style></head>
-<body><h1>{safe_title}</h1>{body}</body></html>"""
+<body>{body}</body></html>"""
 
 
 def render_markdown_long_image(
