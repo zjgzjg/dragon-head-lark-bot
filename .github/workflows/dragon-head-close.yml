@@ -1,0 +1,78 @@
+name: 龙头战法·收盘推送
+
+on:
+  schedule:
+    # 北京时间 15:10（UTC 7:10，周一到周五）
+    - cron: "10 7 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: dragon-head-close
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fonts-noto-cjk-extra
+          fc-cache -f
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: 计算次日竞价交易日（北京）
+        id: close_meta
+        run: |
+          NEXT=$(python - <<'PY'
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+          d = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+          for _ in range(8):
+              d += timedelta(days=1)
+              if d.weekday() < 5:
+                  print(d.strftime("%Y%m%d"))
+                  break
+          PY
+          )
+          echo "next_session=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: 收盘复盘
+        env:
+          TZ: Asia/Shanghai
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          WATCHLIST_MODE: ${{ vars.WATCHLIST_MODE || 'auto' }}
+          WATCHLIST: ${{ vars.WATCHLIST }}
+          MAINLINE_KEYWORD: ${{ vars.MAINLINE_KEYWORD || '机器人' }}
+          THERMOMETER: ${{ vars.THERMOMETER }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        run: |
+          python run_close.py
+          if [ -f watchlist_snapshot.json ]; then
+            echo "写入 watchlist_snapshot.json:"
+            cat watchlist_snapshot.json
+          else
+            echo "警告: 未生成 watchlist_snapshot.json"
+            exit 1
+          fi
+
+      - name: 缓存次日竞价名单
+        uses: actions/cache/save@v4
+        with:
+          path: watchlist_snapshot.json
+          key: watchlist-${{ steps.close_meta.outputs.next_session }}-${{ github.run_id }}

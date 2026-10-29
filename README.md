@@ -48,12 +48,13 @@ python run_auction.py
 1. 把本目录推到 **你的** GitHub 仓库（可 fork 后只保留本 bot 目录，或单独建 repo）
 2. `Settings` → `Secrets`：`FEISHU_WEBHOOK_URL`、（可选）`FEISHU_WEBHOOK_SECRET`、`OPENAI_API_KEY`
 3. `Settings` → `Variables`：`WATCHLIST_MODE`、`MAINLINE_KEYWORD`；（可选）`WATCHLIST`、`THERMOMETER` 钉住某天
-4. 启用 Actions，手动 **Run workflow** 测 `close` / `auction`
+4. `Settings` → **Actions** → **General**：允许 Actions，并确认 **Scheduled workflows** 未被禁用
+5. 定时任务在独立 workflow：**龙头战法·竞价推送**（9:25）、**龙头战法·收盘推送**（15:10）；手动二合一用 **龙头战法飞书推送**
 
-Cron 说明（UTC）：
+Cron（UTC）：
 
-- `25 1 * * 1-5` → 北京 **9:25** 竞价
-- `10 7 * * 1-5` → 北京 **15:10** 收盘
+- 竞价 workflow `25 1 * * 1-5` → 北京 **9:25**
+- 收盘 workflow `10 7 * * 1-5` → 北京 **15:10**
 
 > GitHub 定时可能有 **几分钟延迟**；若要更准点，用下面 Mac 本机 cron。
 
