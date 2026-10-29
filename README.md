@@ -51,10 +51,10 @@ python run_auction.py
 4. `Settings` → **Actions** → **General**：允许 Actions，并确认 **Scheduled workflows** 未被禁用
 5. 定时任务在独立 workflow：**龙头战法·竞价推送**（9:25）、**龙头战法·收盘推送**（15:10）；手动二合一用 **龙头战法飞书推送**
 
-Cron（UTC）：
+Cron（`timezone: Asia/Shanghai`）：
 
-- 竞价 workflow `25 1 * * 1-5` → 北京 **9:25**
-- 收盘 workflow `10 7 * * 1-5` → 北京 **15:10**
+- 竞价 `25 9 * * 1-5` → **9:25**
+- 收盘 `10 15 * * 1-5` → **15:10**
 
 > GitHub 定时可能有 **几分钟延迟**；若要更准点，用下面 Mac 本机 cron。
 
