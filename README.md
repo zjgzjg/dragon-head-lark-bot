@@ -48,33 +48,35 @@ python run_auction.py
 1. 把本目录推到 **你的** GitHub 仓库（可 fork 后只保留本 bot 目录，或单独建 repo）
 2. `Settings` → `Secrets`：`FEISHU_WEBHOOK_URL`、（可选）`FEISHU_WEBHOOK_SECRET`、`OPENAI_API_KEY`
 3. `Settings` → `Variables`：`WATCHLIST_MODE`、`MAINLINE_KEYWORD`；（可选）`WATCHLIST`、`THERMOMETER` 钉住某天
-4. `Settings` → **Actions** → **General**：允许 Actions，并确认 **Scheduled workflows** 未被禁用
-5. 定时任务在独立 workflow：**龙头战法·竞价推送**（9:25）、**龙头战法·收盘推送**（15:10）；手动二合一用 **龙头战法飞书推送**
+4. `Settings` → **Actions** → **General**：允许 Actions
+5. Workflow：**龙头战法·竞价推送**（9:25）、**龙头战法·收盘推送**（15:10）；手动二合一用 **龙头战法飞书推送**
 
-Cron（`timezone: Asia/Shanghai`）：
+### ⚠️ GitHub `schedule` 在本仓库不可靠
 
-- 竞价 `25 9 * * 1-5` → **9:25**
-- 收盘 `10 15 * * 1-5` → **15:10**
+实测：`event=schedule` **从未产生过 run**（手动 `workflow_dispatch` 正常）。私有库 + 个人账号上 GitHub 定时队列可能根本不触发，**改 cron 时区不能解决**。
 
-> GitHub 定时可能有 **几分钟延迟**；若要更准点，用下面 Mac 本机 cron。
+**请用下面 Mac launchd 触发 `gh workflow run`**（Secrets 仍在 GitHub，与本机 `.env` 无关）。
 
-## 4. Mac 本机定时（准点）
+## 4. Mac 定时触发（推荐，准点）
+
+前提：`gh auth login` 已登录，Mac 交易日 **9:25 / 15:10 处于唤醒状态**。
 
 ```bash
-# 编辑 crontab
-crontab -e
+cd /Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
+mkdir -p logs
+chmod +x scripts/trigger-*.sh
+
+cp com.dragon-head-lark-bot.auction.plist ~/Library/LaunchAgents/
+cp com.dragon-head-lark-bot.close.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.dragon-head-lark-bot.auction.plist
+launchctl load ~/Library/LaunchAgents/com.dragon-head-lark-bot.close.plist
 ```
 
-```cron
-SHELL=/bin/zsh
-PATH=/usr/local/bin:/usr/bin:/bin
-DRAGON=/Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
+立即试一次：`./scripts/trigger-auction.sh`
 
-25 9 * * 1-5 cd $DRAGON && /usr/bin/python3 run_auction.py >> logs/auction.log 2>&1
-10 15 * * 1-5 cd $DRAGON && /usr/bin/python3 run_close.py >> logs/close.log 2>&1
-```
+日志：`logs/launchd-auction.log`、`logs/launchd-close.log`
 
-需保证 Mac **唤醒** 且已 `pip install -r requirements.txt`、配置 `.env`。
+（可选）本机直接跑 Python 需 `.env`，见 `.env.example`；与 Actions 并行时可能重复推送，二选一即可。
 
 ## 5. 与 daily_stock_analysis 的关系
 

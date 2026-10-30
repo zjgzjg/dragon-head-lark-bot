@@ -1,10 +1,7 @@
 name: 龙头战法·收盘推送
 
 on:
-  schedule:
-    # 北京时间 15:10（周一到周五）
-    - cron: "10 15 * * 1-5"
-      timezone: Asia/Shanghai
+  # schedule 在本仓库实测不触发；请用 scripts/trigger-close.sh + Mac launchd
   workflow_dispatch:
 
 concurrency:
