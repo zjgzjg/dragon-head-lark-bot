@@ -1,7 +1,9 @@
 name: 龙头战法·收盘推送
 
 on:
-  # schedule 在本仓库实测不触发；请用 scripts/trigger-close.sh + Mac launchd
+  schedule:
+    - cron: "12 15 * * 1-5"
+      timezone: Asia/Shanghai
   workflow_dispatch:
 
 concurrency:

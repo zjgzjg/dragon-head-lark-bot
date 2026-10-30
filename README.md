@@ -51,32 +51,31 @@ python run_auction.py
 4. `Settings` → **Actions** → **General**：允许 Actions
 5. Workflow：**龙头战法·竞价推送**（9:25）、**龙头战法·收盘推送**（15:10）；手动二合一用 **龙头战法飞书推送**
 
-### ⚠️ GitHub `schedule` 在本仓库不可靠
+### 为什么之前 `schedule` 从不触发？
 
-实测：`event=schedule` **从未产生过 run**（手动 `workflow_dispatch` 正常）。私有库 + 个人账号上 GitHub 定时队列可能根本不触发，**改 cron 时区不能解决**。
+| 仓库 | 可见性 | `event=schedule` |
+|------|--------|------------------|
+| `daily_stock_analysis` | **public** | ✅ 每天有 run |
+| 本仓库（改之前） | **private** | ❌ 始终为 0 |
 
-**请用下面 Mac launchd 触发 `gh workflow run`**（Secrets 仍在 GitHub，与本机 `.env` 无关）。
+在 **GitHub Free 个人账号** 下，**私有仓库的 `on.schedule` 不会进调度队列**（官方文档几乎不写，但和 DSA 公开库对比可复现）；`workflow_dispatch` 不受影响。改 cron、开 Actions 开关都无效。
 
-## 4. Mac 定时触发（推荐，准点）
+**已处理：** 本仓库已改为 **public**（与 DSA 一致；Webhook/App Secret 仍在 GitHub Secrets，不会进代码）。
 
-前提：`gh auth login` 已登录，Mac 交易日 **9:25 / 15:10 处于唤醒状态**。
+Cron（`Asia/Shanghai`，略错开整点减轻排队）：竞价 **9:27**、收盘 **15:12**。
+
+若必须私有：升级 **GitHub Pro**，或保留下面 launchd / 外部 cron 调 `workflow_dispatch`。
+
+## 4. Mac 定时触发（私有库或备份）
+
+与 GitHub 定时**二选一**，同时开可能 **重复推送**。
 
 ```bash
-cd /Users/zhaojingang/IdeaProjects/dragon-head-lark-bot
-mkdir -p logs
-chmod +x scripts/trigger-*.sh
-
-cp com.dragon-head-lark-bot.auction.plist ~/Library/LaunchAgents/
-cp com.dragon-head-lark-bot.close.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.dragon-head-lark-bot.auction.plist
-launchctl load ~/Library/LaunchAgents/com.dragon-head-lark-bot.close.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.dragon-head-lark-bot.auction.plist 2>/dev/null
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.dragon-head-lark-bot.close.plist 2>/dev/null
 ```
 
-立即试一次：`./scripts/trigger-auction.sh`
-
-日志：`logs/launchd-auction.log`、`logs/launchd-close.log`
-
-（可选）本机直接跑 Python 需 `.env`，见 `.env.example`；与 Actions 并行时可能重复推送，二选一即可。
+需要本机备份时再 `cp com.dragon-head-lark-bot.*.plist ~/Library/LaunchAgents/` 并 `launchctl bootstrap`；见 `scripts/trigger-*.sh`。
 
 ## 5. 与 daily_stock_analysis 的关系
 

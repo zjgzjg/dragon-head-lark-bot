@@ -1,7 +1,9 @@
 name: 龙头战法·竞价推送
 
 on:
-  # schedule 在本仓库实测不触发；请用 scripts/trigger-auction.sh + Mac launchd
+  schedule:
+    - cron: "27 9 * * 1-5"
+      timezone: Asia/Shanghai
   workflow_dispatch:
 
 concurrency:
