@@ -15,6 +15,7 @@ from src.trade_calendar import (
     prior_trade_date_yyyymmdd,
     weekday_cn,
 )
+from src.mainline import detect_mainline, mainline_source_note
 from src.watchlist import resolve_thermometer, resolve_watch_codes, thermometer_source_note, watchlist_source_note
 from src.watchlist_snapshot import load_snapshot_for_session
 
@@ -120,11 +121,23 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         )
     else:
         list_date = prev
-        thermometer = (thermometer or "").strip() or resolve_thermometer(pool_for_list)
-        active_watch = [_norm_code(c) for c in resolve_watch_codes(pool_for_list, thermometer, watch_codes)]
+        active_watch = []
         snapshot_note = (
             f"> ⚠️ 未找到 {fmt_date(session)} 收盘定版缓存，已按 **{fmt_date(prev)}** 涨停池临时生成"
         )
+
+    lb_list = fetch_day_summary(list_date)
+    ml = detect_mainline(pool_for_list, lb_list)
+    if not snapshot:
+        thermometer = (thermometer or "").strip() or resolve_thermometer(
+            pool_for_list, decision=ml
+        )
+        active_watch = [
+            _norm_code(c)
+            for c in resolve_watch_codes(
+                pool_for_list, thermometer, watch_codes, decision=ml
+            )
+        ]
 
     lines = [
         f"## ⏰ {fmt_date(session)}（{weekday_cn(session)}）北京 {now_bj.strftime('%H:%M')} 竞价快报",
@@ -164,8 +177,9 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
     lines += [
         "",
         snapshot_note,
-        f"> {watchlist_source_note()}",
-        f"> {thermometer_source_note(thermometer, pool_names.get(_norm_code(thermometer), ''))}",
+        f"> {mainline_source_note(ml)}",
+        f"> {watchlist_source_note(ml)}",
+        f"> {thermometer_source_note(thermometer, pool_names.get(_norm_code(thermometer), ''), ml)}",
         "",
         "### 观察名单",
         "",

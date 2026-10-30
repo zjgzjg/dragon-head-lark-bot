@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from src.mainline import MainlineDecision
 
 _CONSUMER_HINT = r"消费|零售|食品|百货|商业|餐饮|酿酒|旅游|酒店|乳业|预制菜|电商"
 
@@ -77,19 +80,51 @@ def _mainline_match_mask(df: pd.DataFrame, kw: str) -> pd.Series:
     return mask
 
 
-def mainline_pool(df: pd.DataFrame) -> pd.DataFrame:
+def _mainline_match_mask_terms(df: pd.DataFrame, terms: List[str]) -> pd.Series:
+    if not terms:
+        return pd.Series(False, index=df.index)
+    cols = _text_columns(df)
+    if not cols:
+        return pd.Series(False, index=df.index)
+    mask = pd.Series(False, index=df.index)
+    for term in terms:
+        if not term:
+            continue
+        for col in cols:
+            mask |= df[col].astype(str).str.contains(term, na=False, regex=False)
+    return mask
+
+
+def mainline_pool(
+    df: pd.DataFrame,
+    decision: Optional["MainlineDecision"] = None,
+) -> pd.DataFrame:
     """
-    主线票集合：先按关键字扫行业/涨停原因/概念等；若无命中（东财行业常无「机器人」），
-    则去掉消费支线后作为观察宇宙，避免把上海九百这类全市场高度误当机器人体温计。
+    主线票集合：默认用 detect_mainline 的 match_terms；
+    无 decision 且无 MAINLINE_KEYWORD 时自动 detect（无连板网则仅东财）。
     """
     if not _has_zt_pool(df):
         return pd.DataFrame()
+
     kw = _mainline_keyword()
-    if not kw:
-        return df
-    matched = df[_mainline_match_mask(df, kw)]
-    if not matched.empty:
-        return matched
+    if kw:
+        matched = df[_mainline_match_mask(df, kw)]
+        if not matched.empty:
+            return matched
+        rest = df[~_consumer_mask(df)]
+        return rest if not rest.empty else df
+
+    if decision is None:
+        from src.mainline import detect_mainline
+
+        decision = detect_mainline(df, lb=None)
+
+    terms = decision.match_terms if decision else []
+    if terms:
+        matched = df[_mainline_match_mask_terms(df, terms)]
+        if not matched.empty:
+            return matched
+
     rest = df[~_consumer_mask(df)]
     return rest if not rest.empty else df
 
@@ -98,17 +133,20 @@ def _mainline_filter(df: pd.DataFrame) -> pd.DataFrame:
     return mainline_pool(df)
 
 
-def pick_auto_thermometer(df: pd.DataFrame) -> str:
+def pick_auto_thermometer(
+    df: pd.DataFrame,
+    decision: Optional["MainlineDecision"] = None,
+) -> str:
     """
     体温计：主线宇宙里的空间龙（非全市场消费高度）。
     排序：连板最高 → 首封更早 → 封单更软（更偏情绪标，默认不当买点）。
     """
     if not _has_zt_pool(df):
         return ""
-    base = mainline_pool(df)
+    base = mainline_pool(df, decision=decision)
     if base.empty:
         return ""
-    if _mainline_keyword():
+    if _mainline_keyword() or (decision and decision.match_terms):
         h = int(base["连板数"].max())
         base = base[base["连板数"] == h]
     sub = base.sort_values(
@@ -118,7 +156,10 @@ def pick_auto_thermometer(df: pd.DataFrame) -> str:
     return str(sub.iloc[0]["代码"])
 
 
-def resolve_thermometer(df: pd.DataFrame) -> str:
+def resolve_thermometer(
+    df: pd.DataFrame,
+    decision: Optional["MainlineDecision"] = None,
+) -> str:
     """
     THERMOMETER_MODE:
     - auto（默认）：规则选主线空间龙；未填 THERMOMETER 时完全自动
@@ -131,7 +172,7 @@ def resolve_thermometer(df: pd.DataFrame) -> str:
         return manual
     if manual:
         return manual
-    return pick_auto_thermometer(df)
+    return pick_auto_thermometer(df, decision=decision)
 
 
 def _therm_label(code: str, name: str = "") -> str:
@@ -142,7 +183,11 @@ def _therm_label(code: str, name: str = "") -> str:
     return f"**{n}**" if n else (f"`{c}`" if c else "—")
 
 
-def thermometer_source_note(code: str, name: str = "") -> str:
+def thermometer_source_note(
+    code: str,
+    name: str = "",
+    decision: Optional["MainlineDecision"] = None,
+) -> str:
     manual = os.environ.get("THERMOMETER", "").strip()
     mode = os.environ.get("THERMOMETER_MODE", "auto").strip().lower()
     lab = _therm_label(code, name)
@@ -151,7 +196,12 @@ def thermometer_source_note(code: str, name: str = "") -> str:
     if not code:
         return "体温计：涨停池缺失，未指定"
     kw = _mainline_keyword()
-    hint = f"主线「{kw}」空间龙" if kw else "主线空间龙"
+    if kw:
+        hint = f"主线「{kw}」空间龙"
+    elif decision and decision.label:
+        hint = f"主线「{decision.label}」空间龙"
+    else:
+        hint = "主线空间龙"
     return f"体温计：{lab}（{hint}·自动）"
 
 
@@ -159,11 +209,12 @@ def pick_auto_watch_codes(
     df: pd.DataFrame,
     thermometer: str,
     max_n: int = 5,
+    decision: Optional["MainlineDecision"] = None,
 ) -> List[str]:
     """从收盘涨停池按硬条件 + 主线 + 排序生成次日观察代码（不含体温计）。"""
     if not _has_zt_pool(df):
         return []
-    base = mainline_pool(df)
+    base = mainline_pool(df, decision=decision)
     if base.empty:
         return []
     sub = base[base["连板数"] >= 2].copy()
@@ -199,6 +250,7 @@ def resolve_watch_codes(
     thermometer: str,
     manual: List[str],
     max_n: int = 5,
+    decision: Optional["MainlineDecision"] = None,
 ) -> List[str]:
     """
     WATCHLIST_MODE:
@@ -210,7 +262,7 @@ def resolve_watch_codes(
     therm = thermometer.strip()
     manual = [c.strip() for c in manual if c.strip() and c.strip() != therm]
 
-    auto = pick_auto_watch_codes(df, therm, max_n=max_n)
+    auto = pick_auto_watch_codes(df, therm, max_n=max_n, decision=decision)
 
     if mode == "manual":
         out = manual[: max_n - 1]
@@ -229,10 +281,16 @@ def resolve_watch_codes(
     return out
 
 
-def watchlist_source_note() -> str:
+def watchlist_source_note(decision: Optional["MainlineDecision"] = None) -> str:
     mode = os.environ.get("WATCHLIST_MODE", "auto").strip().lower()
     kw = _mainline_keyword()
-    mainline = f" + 主线「{kw}」排序" if kw else ""
+    if kw:
+        mainline = f" + 主线「{kw}」（手动关键字）"
+    elif decision and decision.label:
+        flag = "双源确认" if decision.confirmed else "东财×连板网"
+        mainline = f" + 主线「{decision.label}」（{flag}）"
+    else:
+        mainline = " + 东财概念×连板网定主线"
     hard = f"硬条件：{HARD_CONDITIONS_TEXT}"
     if mode == "manual":
         return "观察名单来源：**手动 WATCHLIST**"

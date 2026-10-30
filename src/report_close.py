@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from src.lianban_net import LianbanSummary, fetch_day_summary, fetch_latest_summary
+from src.mainline import detect_mainline, format_mainline_cell, mainline_source_note
 from src.market_data import fetch_code_quote, fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
 from src.watchlist import (
@@ -276,24 +277,15 @@ def _pool_row(df: pd.DataFrame, code: str) -> Optional[pd.Series]:
     return r.iloc[0] if len(r) else None
 
 
-def _mainline_narrative(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> str:
-    kw = os.environ.get("MAINLINE_KEYWORD", "机器人").strip() or "机器人"
-    cnt = 0
-    if _has_zt_pool(df):
-        cnt = int(len(mainline_pool(df)))
-        theme = kw
-    elif lb and lb.themes:
-        theme = lb.themes.split("、")[0]
-        cnt = lb.zt // 3
-        if lb.ai_snippet:
-            m = re.search(r"机器人[^\d]{0,12}(\d+)只", lb.ai_snippet)
-            if m:
-                cnt = int(m.group(1))
-                theme = "机器人"
-    else:
-        theme, cnt = _top_theme(df)
-    tail = "，但 **缩圈抱团**" if lb and "冰点" in (lb.phase or "") else ""
-    return f"**{theme}**（约 **{cnt}** 家）{tail}"
+def _mainline_narrative(
+    df: pd.DataFrame,
+    lb: Optional[LianbanSummary],
+    decision=None,
+) -> str:
+    if decision is None:
+        decision = detect_mainline(df if _has_zt_pool(df) else pd.DataFrame(), lb)
+    cnt = int(len(mainline_pool(df, decision=decision))) if _has_zt_pool(df) else 0
+    return format_mainline_cell(decision, cnt, lb=lb)
 
 
 def _height_narrative(df: pd.DataFrame, lb: Optional[LianbanSummary]) -> str:
@@ -451,10 +443,10 @@ def _metric_zt(lb: Optional[LianbanSummary], df: pd.DataFrame) -> Optional[float
     return None
 
 
-def _metric_mainline_cnt(df: pd.DataFrame) -> Optional[int]:
+def _metric_mainline_cnt(df: pd.DataFrame, decision=None) -> Optional[int]:
     if not _has_zt_pool(df):
         return None
-    return int(len(mainline_pool(df)))
+    return int(len(mainline_pool(df, decision=decision)))
 
 
 def _metric_max_height(lb: Optional[LianbanSummary], df: pd.DataFrame) -> Optional[float]:
@@ -492,6 +484,8 @@ def _section_env_compact(
     df: pd.DataFrame,
     df_prev: pd.DataFrame,
     therm_name: str,
+    ml_cur=None,
+    ml_prev=None,
 ) -> List[str]:
     emo_cmp_parts: List[str] = []
     t0, t1 = _metric_temp(lb_prev), _metric_temp(lb_cur)
@@ -502,7 +496,7 @@ def _section_env_compact(
         emo_cmp_parts.append(_delta_note("zt", z0, z1))
     emo_cmp = "；".join(emo_cmp_parts) if emo_cmp_parts else "—"
 
-    m0, m1 = _metric_mainline_cnt(df_prev), _metric_mainline_cnt(df)
+    m0, m1 = _metric_mainline_cnt(df_prev, ml_prev), _metric_mainline_cnt(df, ml_cur)
     main_cmp = _delta_note("mainline", float(m0) if m0 is not None else None, float(m1) if m1 is not None else None)
 
     h0, h1 = _metric_max_height(lb_prev, df_prev), _metric_max_height(lb_cur, df)
@@ -515,7 +509,7 @@ def _section_env_compact(
         f"| 环境 | {_md_short(date)} 今日 | {_md_short(prev_d)} 昨日 | 对比 |",
         "| --- | --- | --- | --- |",
         f"| **情绪** | {_emo_line(lb_cur, df)} | {_emo_line(lb_prev, df_prev)} | {emo_cmp} |",
-        f"| **主线** | {_mainline_narrative(df, lb_cur)} | {_mainline_narrative(df_prev, lb_prev)} | {main_cmp} |",
+        f"| **主线** | {_mainline_narrative(df, lb_cur, ml_cur)} | {_mainline_narrative(df_prev, lb_prev, ml_prev)} | {main_cmp} |",
         f"| **高度** | {_height_narrative(df, lb_cur)} | {_height_narrative(df_prev, lb_prev)} | {height_cmp} |",
         f"| **仓位** | {_position_narrative(lb_cur, therm_name)} | {_position_narrative(lb_prev, therm_name)} | — |",
     ]
@@ -657,8 +651,14 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
 
     df_for_watch = df if pool_ok else df
     df_for_watch.attrs["date"] = report_date
-    thermometer = (thermometer or "").strip() or resolve_thermometer(df_for_watch)
-    resolved = resolve_watch_codes(df_for_watch, thermometer, watch_codes)
+    ml_cur = detect_mainline(df if pool_ok else pd.DataFrame(), lb_cur)
+    ml_prev = detect_mainline(df_prev if _has_zt_pool(df_prev) else pd.DataFrame(), lb_prev)
+    thermometer = (thermometer or "").strip() or resolve_thermometer(
+        df_for_watch, decision=ml_cur
+    )
+    resolved = resolve_watch_codes(
+        df_for_watch, thermometer, watch_codes, decision=ml_cur
+    )
     watch_rows = build_watch_table_rows(resolved, thermometer, df_for_watch, report_date)
     therm_name = next((r["name"] for r in watch_rows if r["code"] == thermometer), thermometer)
 
@@ -672,12 +672,13 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
 
     parts = header
     parts += _section_env_compact(
-        report_date, nd, prev_d, lb_cur, lb_prev, df, df_prev, therm_name
+        report_date, nd, prev_d, lb_cur, lb_prev, df, df_prev, therm_name, ml_cur, ml_prev
     )
     if lb_cur and lb_cur.one_liner:
         parts.append(f"\n> 连板网：{lb_cur.one_liner}")
-    parts.append(f"\n> {watchlist_source_note()}")
-    parts.append(f"> {thermometer_source_note(thermometer, therm_name)}")
+    parts.append(f"\n> {mainline_source_note(ml_cur)}")
+    parts.append(f"\n> {watchlist_source_note(ml_cur)}")
+    parts.append(f"> {thermometer_source_note(thermometer, therm_name, ml_cur)}")
     parts += _section_watch_table(report_date, nd, watch_rows)
     parts += _section_triggers(nd, watch_rows, thermometer)
     parts += _section_exec(nd)
