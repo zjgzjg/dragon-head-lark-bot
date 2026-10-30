@@ -2,7 +2,7 @@ name: 龙头战法·收盘推送
 
 on:
   schedule:
-    - cron: "12 15 * * 1-5"
+    - cron: "10 15 * * 1-5"
       timezone: Asia/Shanghai
   workflow_dispatch:
 

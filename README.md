@@ -62,7 +62,7 @@ python run_auction.py
 
 **已处理：** 本仓库已改为 **public**（与 DSA 一致；Webhook/App Secret 仍在 GitHub Secrets，不会进代码）。
 
-Cron（`Asia/Shanghai`，略错开整点减轻排队）：竞价 **9:27**、收盘 **15:12**。
+Cron（`Asia/Shanghai`）：竞价 **9:25**、收盘 **15:10**（可能比整点晚几分钟）。
 
 若必须私有：升级 **GitHub Pro**，或保留下面 launchd / 外部 cron 调 `workflow_dispatch`。
 

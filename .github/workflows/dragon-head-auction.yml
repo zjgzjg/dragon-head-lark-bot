@@ -2,7 +2,7 @@ name: 龙头战法·竞价推送
 
 on:
   schedule:
-    - cron: "27 9 * * 1-5"
+    - cron: "25 9 * * 1-5"
       timezone: Asia/Shanghai
   workflow_dispatch:
 
