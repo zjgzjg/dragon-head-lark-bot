@@ -16,7 +16,14 @@ class MethodologyAuctionTest(unittest.TestCase):
         self.assertIn("删", auction_open_verdict(-2.5))
 
     def test_high_open_no_chase(self):
-        self.assertIn("不追", auction_open_verdict(5.0))
+        v = auction_open_verdict(5.0)
+        self.assertIn("不追", v)
+        self.assertNotIn("❌ 低开", v)
+
+    def test_sweet_spot_observe(self):
+        v = auction_open_verdict(1.5)
+        self.assertIn("✅", v)
+        self.assertIn("观察窗", v)
 
     def test_dump_risk(self):
         v = auction_open_verdict(1.0, dump_risk=True)

@@ -126,20 +126,27 @@ def auction_open_verdict(
     dump_risk: bool = False,
     data_missing: bool = False,
 ) -> str:
-    """竞价开盘裁决（方法论同步）。"""
+    """
+    竞价开盘裁决（方法论同步）。
+
+    区分三档：
+    - ❌ 删/出货：从观察序列剔除或明确不做
+    - ✅ / 🟡：仍观察，等 9:35–9:45 承接三件套（竞价本身不买）
+    - 🔴：情绪参考为主，勿竞价追价
+    """
     parts: List[str] = []
     if dump_risk:
         parts.append("❌ 竞价出货（量>昨5%且9:20–9:25价跌）")
     if pct_open <= -2:
         parts.append("❌ 低开>2% 删")
     elif pct_open <= 0:
-        parts.append("⚠️ 低开0~2% 等10:00/承接")
+        parts.append("⚠️ 低开0~2% 保留·等10:00/承接")
     elif pct_open <= 2:
-        parts.append("🟡 平开~小幅高开 可观察")
+        parts.append("✅ 平开~小幅高开·进观察窗（9:35–9:45承接）")
     elif pct_open <= 7:
-        parts.append("❌ 高开>2% 不追")
+        parts.append("🟡 高开>2% 竞价不追·等回落承接")
     else:
-        parts.append("🔴 高开>7% 透支")
+        parts.append("🔴 高开>7% 透支·只看线/体温")
     if data_missing and not dump_risk:
         parts.append("（量价比未验）")
     return " · ".join(parts) if parts else "—"
