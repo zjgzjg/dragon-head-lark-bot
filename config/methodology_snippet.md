@@ -1,4 +1,6 @@
-# 龙头战法执行摘要（写入 Prompt，完整规则以你的文档为准）
+# 龙头战法执行摘要（与 `src/methodology.py` 同步，bot 复盘/竞价按此执行）
+
+> 改规则时请同时改 `src/methodology.py`，保证推送与 LLM Prompt 一致。
 
 ## 大前提（仓位）
 - 冰点：空仓或只处理存量

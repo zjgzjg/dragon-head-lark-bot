@@ -11,6 +11,12 @@ import pandas as pd
 
 from src.lianban_net import LianbanSummary, fetch_day_summary, fetch_latest_summary
 from src.mainline import detect_mainline, format_mainline_cell, mainline_source_note
+from src.methodology import (
+    close_context_vetoes,
+    close_hard_fail_reasons,
+    format_close_methodology_block,
+    merge_close_note,
+)
 from src.market_data import fetch_code_quote, fetch_watchlist_rows, fetch_zt_pool, summarize_zt
 from src.trade_calendar import fmt_date, next_trade_date, prev_trade_date, weekday_cn
 from src.watchlist import (
@@ -41,24 +47,6 @@ def _hard_pass(row: pd.Series) -> bool:
         and row["换手率"] <= 20
         and int(row["首次封板时间"]) <= 140000
     )
-
-
-def _veto_reasons(row: pd.Series) -> List[str]:
-    rs: List[str] = []
-    if int(row["连板数"]) < 2:
-        rs.append("连板不足 2 天")
-    seal = float(row["封单比"])
-    if seal < 3:
-        rs.append(f"封板偏软（封单比 {seal:.1f}%，要求 ≥3%）")
-    z = int(row["炸板次数"])
-    if z >= 3:
-        rs.append(f"炸板过多（{z} 次，要求 <3 次）")
-    turn = float(row["换手率"])
-    if turn > 20:
-        rs.append(f"换手偏高（{turn:.1f}%，要求 ≤20%）")
-    if int(row["首次封板时间"]) > 140000:
-        rs.append("首封偏晚（14:00 以后才封板）")
-    return rs
 
 
 def _limit_up_price(code: str, close: float) -> float:
@@ -319,21 +307,31 @@ def _position_narrative(lb: Optional[LianbanSummary], therm_name: str) -> str:
     return f"控制仓位；**{therm_name}** 定次日竞价权限"
 
 
-def _hard_note(code: str, df: pd.DataFrame, best_seal: float) -> str:
+def _hard_note(
+    code: str,
+    df: pd.DataFrame,
+    best_seal: float,
+    *,
+    thermometer: str,
+    max_height: int,
+) -> str:
     r = _pool_row(df, code)
     if r is None:
         return "当日未在涨停池"
-    reasons = _veto_reasons(r)
-    if not reasons:
-        return "硬条件全部满足"
-    note = "；".join(reasons)
+    hard = close_hard_fail_reasons(r)
+    ctx = close_context_vetoes(
+        r,
+        max_height_in_pool=max_height,
+        is_thermometer=(code.strip() == thermometer.strip()),
+    )
+    best_note = ""
     seal = float(r["封单比"])
     if best_seal > 0 and abs(seal - best_seal) < 0.05:
         if seal < 3:
-            note = f"名单里相对最硬（但仍有不足：{note}）"
+            best_note = "名单里相对最硬"
         else:
-            note = "名单里相对最硬，硬条件满足"
-    return note
+            best_note = "名单里相对最硬，硬条件满足"
+    return merge_close_note(hard, ctx, best_seal_note=best_note)
 
 
 def _board_role_suffix(r: pd.Series) -> str:
@@ -392,6 +390,9 @@ def build_watch_table_rows(
         codes.append(thermometer)
 
     seals: List[float] = []
+    max_height = 0
+    if _has_zt_pool(df):
+        max_height = int(df["连板数"].max())
     for c in codes:
         r = _pool_row(df, c)
         if r is not None:
@@ -412,7 +413,9 @@ def build_watch_table_rows(
                 "close_txt": close_txt,
                 "close": close,
                 "limit": _limit_up_price(code, close) if close else 0,
-                "hard_note": _hard_note(code, df, best_seal),
+                "hard_note": _hard_note(
+                    code, df, best_seal, thermometer=thermometer, max_height=max_height
+                ),
             }
         )
     return rows
@@ -682,6 +685,7 @@ def build_close_report(date: str, watch_codes: List[str], thermometer: str) -> s
     parts += _section_watch_table(report_date, nd, watch_rows)
     parts += _section_triggers(nd, watch_rows, thermometer)
     parts += _section_exec(nd)
+    parts += format_close_methodology_block()
     parts += ["", "## 五、一句话", "", _one_liner(watch_rows, nd, thermometer), "", "> 方法论复盘，不构成投资建议。"]
     return "\n".join(parts)
 

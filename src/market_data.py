@@ -7,7 +7,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List, Optional, TypeVar
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 
 import akshare as ak
 import pandas as pd
@@ -323,6 +323,88 @@ def _snapshot_from_sina_minute(code: str, trade_date: datetime) -> Optional[Dict
         "pct_open": (o / prev - 1) * 100,
         "pct_last": (last / prev - 1) * 100,
     }
+
+
+def fetch_prev_day_volume(code: str, trade_date_yyyymmdd: str) -> Optional[float]:
+    """昨收交易日全天成交量（手）。"""
+    code = code.strip()
+    sym = _sina_symbol(code)
+    start = (datetime.strptime(trade_date_yyyymmdd, "%Y%m%d") - timedelta(days=15)).strftime("%Y%m%d")
+    end = trade_date_yyyymmdd
+    try:
+        h = _retry_call(
+            ak.stock_zh_a_daily,
+            symbol=sym,
+            start_date=start,
+            end_date=end,
+            adjust="",
+        )
+        if h is not None and len(h):
+            h = h.copy()
+            h["date"] = pd.to_datetime(h["date"])
+            target = datetime.strptime(trade_date_yyyymmdd, "%Y%m%d").date()
+            row = h[h["date"].dt.date == target]
+            if len(row):
+                v = row.iloc[0].get("volume")
+                if v is not None and float(v) > 0:
+                    return float(v)
+    except Exception:
+        pass
+    if not _is_ci():
+        try:
+            h = _retry_call(
+                ak.stock_zh_a_hist,
+                symbol=code,
+                period="daily",
+                start_date=start,
+                end_date=end,
+                adjust="",
+            )
+            if h is not None and len(h):
+                for col in ("成交量", "volume"):
+                    if col in h.columns:
+                        v = float(h.iloc[-1][col])
+                        if v > 0:
+                            return v
+        except Exception:
+            pass
+    return None
+
+
+def fetch_auction_dump_risk(code: str, trade_date: datetime, prev_date_yyyymmdd: str) -> Tuple[bool, bool]:
+    """
+    方法论：竞价量>昨全天5% 且 9:20–9:25 价跌 → 出货。
+    返回 (是否出货否决, 是否缺数据未验)。
+    """
+    prev_vol = fetch_prev_day_volume(code, prev_date_yyyymmdd)
+    if prev_vol is None or prev_vol <= 0:
+        return False, True
+    sym = _sina_symbol(code.strip())
+    try:
+        m = _retry_call(ak.stock_zh_a_minute, symbol=sym, period="1", adjust="")
+        m = m.copy()
+        m["day"] = pd.to_datetime(m["day"])
+        td = trade_date.date()
+        day = m[m["day"].dt.date == td].sort_values("day")
+        if day.empty:
+            return False, True
+        win = day[(day["day"].dt.hour == 9) & (day["day"].dt.minute >= 20) & (day["day"].dt.minute <= 25)]
+        if win.empty:
+            win = day.head(6)
+        win = win.copy()
+        for c in ("open", "close", "volume"):
+            if c in win.columns:
+                win[c] = pd.to_numeric(win[c], errors="coerce")
+        vol = float(win["volume"].fillna(0).sum()) if "volume" in win.columns else 0.0
+        if vol <= 0:
+            return False, True
+        o0 = float(win.iloc[0]["open"])
+        cl = float(win.iloc[-1]["close"])
+        price_down = cl < o0
+        heavy = vol > prev_vol * 0.05
+        return bool(heavy and price_down), False
+    except Exception:
+        return False, True
 
 
 def fetch_open_snapshot(code: str, trade_date: datetime) -> Optional[Dict]:

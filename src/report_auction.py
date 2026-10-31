@@ -7,7 +7,12 @@ from typing import Dict, List, Optional, Set
 import pandas as pd
 
 from src.lianban_net import fetch_day_summary, format_lianban_section
-from src.market_data import fetch_open_snapshot, fetch_zt_pool
+from src.market_data import fetch_auction_dump_risk, fetch_open_snapshot, fetch_zt_pool
+from src.methodology import (
+    auction_open_verdict,
+    format_auction_methodology_block,
+    thermometer_auction_verdict,
+)
 from src.trade_calendar import (
     beijing_session_yyyymmdd,
     fmt_date,
@@ -27,18 +32,6 @@ def _norm_code(code: str) -> str:
     return c
 
 
-def _auction_verdict(pct_open: float) -> str:
-    if pct_open <= -2:
-        return "❌ 低开>2% 否决"
-    if pct_open <= 0:
-        return "⚠️ 低开0~2% 等10:00/承接"
-    if pct_open <= 3:
-        return "🟡 高开0~3% 谨慎"
-    if pct_open <= 7:
-        return "🟢 高开3~7% 可观察"
-    return "🔴 高开>7% 透支"
-
-
 def _names_from_pool(df: Optional[pd.DataFrame]) -> Dict[str, str]:
     names: Dict[str, str] = {}
     if df is None or df.empty or "名称" not in df.columns:
@@ -49,10 +42,21 @@ def _names_from_pool(df: Optional[pd.DataFrame]) -> Dict[str, str]:
     return names
 
 
-def _label(code: str, names: Dict[str, str]) -> str:
-    c = _norm_code(code)
-    name = names.get(c, "").strip()
-    return f"**{name}**（{c}）" if name else f"**{c}**"
+def _auction_verdict_for_code(
+    code: str,
+    snap: Optional[dict],
+    *,
+    is_thermometer: bool,
+    prev_date: str,
+    now_bj,
+) -> str:
+    if not snap or snap.get("pct_open") is None:
+        return "无数据"
+    pct = float(snap["pct_open"])
+    dump, missing = fetch_auction_dump_risk(code, now_bj, prev_date)
+    if is_thermometer:
+        return thermometer_auction_verdict(pct, code)
+    return auction_open_verdict(pct, dump_risk=dump, data_missing=missing)
 
 
 def _snap_cells(
@@ -62,6 +66,8 @@ def _snap_cells(
     *,
     in_pool: bool = False,
     mark_therm: bool = False,
+    prev_date: str = "",
+    now_bj=None,
 ) -> tuple:
     c = _norm_code(code)
     name = names.get(c, c) + ("（体温）" if mark_therm else "")
@@ -74,17 +80,53 @@ def _snap_cells(
     else:
         pct_o = f"{snap['pct_open']:+.2f}%"
         pct_l = f"{snap['pct_last']:+.2f}%"
-        verdict = _auction_verdict(float(snap["pct_open"]))
+        verdict = _auction_verdict_for_code(
+            c,
+            snap,
+            is_thermometer=mark_therm,
+            prev_date=prev_date,
+            now_bj=now_bj,
+        )
     return c, name, open_txt, pct_o, pct_l, pool, verdict
 
 
-def _therm_row(code: str, snap: Optional[dict], names: Dict[str, str], in_pool: bool) -> str:
-    cells = _snap_cells(code, snap, names, in_pool=in_pool, mark_therm=True)
+def _therm_row(
+    code: str,
+    snap: Optional[dict],
+    names: Dict[str, str],
+    in_pool: bool,
+    prev_date: str,
+    now_bj,
+) -> str:
+    cells = _snap_cells(
+        code,
+        snap,
+        names,
+        in_pool=in_pool,
+        mark_therm=True,
+        prev_date=prev_date,
+        now_bj=now_bj,
+    )
     return "| " + " | ".join(cells) + " |"
 
 
-def _watch_row(idx: int, code: str, snap: Optional[dict], names: Dict[str, str], in_pool: bool) -> str:
-    c, name, _, pct_o, pct_l, pool, verdict = _snap_cells(code, snap, names, in_pool=in_pool)
+def _watch_row(
+    idx: int,
+    code: str,
+    snap: Optional[dict],
+    names: Dict[str, str],
+    in_pool: bool,
+    prev_date: str,
+    now_bj,
+) -> str:
+    c, name, _, pct_o, pct_l, pool, verdict = _snap_cells(
+        code,
+        snap,
+        names,
+        in_pool=in_pool,
+        prev_date=prev_date,
+        now_bj=now_bj,
+    )
     return f"| {idx} | {c} | {name} | {pct_o} | {pct_l} | {pool} | {verdict} |"
 
 
@@ -169,6 +211,8 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
                 th,
                 pool_names,
                 _norm_code(thermometer) in zt_codes,
+                prev,
+                now_bj,
             )
         )
     else:
@@ -203,13 +247,16 @@ def build_auction_report(watch_codes: List[str], thermometer: str) -> str:
         snap = fetch_open_snapshot(code, now_bj)
         if snap and snap.get("name"):
             pool_names[code] = str(snap["name"])
-        lines.append(_watch_row(idx, code, snap, pool_names, code in zt_codes))
+        lines.append(
+            _watch_row(idx, code, snap, pool_names, code in zt_codes, prev, now_bj)
+        )
 
+    lines += format_auction_methodology_block()
     lines += [
         "",
         "### 执行提醒",
-        "- 竞价只否决；9:35–9:45 承接三件套才考虑动手。",
-        "- 板块不同步 → 不做。",
+        "- **9:30–9:40**：不破开、放量、板块同步（名单内至少 2 只站在开盘价之上）。",
+        "- **9:35–9:45**：唯一可下单窗口；体温计不回封 → 全线撤退。",
         "",
         "> 不构成投资建议。",
     ]
