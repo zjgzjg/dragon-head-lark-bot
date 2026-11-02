@@ -1,0 +1,19 @@
+# 复制到 daily_stock_analysis 仓库并重命名为 .github/workflows/dragon-head-auction-dispatch.yml
+# Secrets 需添加 DRAGON_HEAD_DISPATCH_PAT（classic PAT，repo + workflow 权限）
+name: 代触发·龙头竞价
+
+on:
+  schedule:
+    - cron: "27 1 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -fsSL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.DRAGON_HEAD_DISPATCH_PAT }}" \
+            https://api.github.com/repos/zjgzjg/dragon-head-lark-bot/actions/workflows/dragon-head-auction.yml/dispatches \
+            -d '{"ref":"main"}'

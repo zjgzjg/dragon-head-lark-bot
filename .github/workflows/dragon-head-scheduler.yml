@@ -1,0 +1,50 @@
+# 轻量 cron：仅触发 workflow_dispatch（竞价/收盘各跑各的 job 定义）
+# 原因：dragon-head-auction.yml 的 schedule 历史上 0 次触发，收盘 schedule 也极不稳定
+name: 龙头战法·定时路由
+
+on:
+  schedule:
+    - cron: "25 1 * * 1-5"   # 北京 9:25
+    - cron: "10 7 * * 1-5"   # 北京 15:10
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "触发目标"
+        required: true
+        default: auction
+        type: choice
+        options:
+          - auction
+          - close
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 选择 workflow
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "wf=${{ github.event.inputs.target }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "25 1 * * 1-5" ]; then
+            echo "wf=auction" >> "$GITHUB_OUTPUT"
+          else
+            echo "wf=close" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 触发 workflow_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "${{ steps.pick.outputs.wf }}" in
+            auction) FILE="dragon-head-auction.yml" ;;
+            close)   FILE="dragon-head-close.yml" ;;
+            *) echo "unknown target"; exit 1 ;;
+          esac
+          gh workflow run "$FILE" --repo "${{ github.repository }}" --ref main
+          echo "Dispatched $FILE at $(TZ=Asia/Shanghai date '+%F %T %Z')"
